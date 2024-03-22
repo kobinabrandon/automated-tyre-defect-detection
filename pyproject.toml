@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "src"
+version = "0.1.0"
+description = ""
+authors = ["Kobina Brandon <maadabrandon@protonmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+python-dotenv = "^1.0.1"
+loguru = "^0.7.2"
+tqdm = "^4.66.2"
+torch = "^2.2.1"
+torchvision = "^0.17.1"
+matplotlib = "^3.8.3"
+ruff = "^0.3.3"
+
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

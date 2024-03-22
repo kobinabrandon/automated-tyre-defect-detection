@@ -1,0 +1,20 @@
+import os
+from pathlib import Path
+
+PARENT_DIR = Path("__file__").parent.resolve()
+
+DATA_DIR = PARENT_DIR/"data"
+TRAINING_DATA_DIR = DATA_DIR/"Training"
+TEST_DATA_DIR = DATA_DIR/"Testing"
+MODELS_DIR = PARENT_DIR/"models"
+
+
+if __name__ == "__main__":
+
+    # Create any of these folders if they don't already exist
+    for folder in [DATA_DIR, TRAINING_DATA_DIR, TEST_DATA_DIR, MODELS_DIR]:
+        if not Path(folder).exists():
+            os.mkdir(folder)
+
+
+
