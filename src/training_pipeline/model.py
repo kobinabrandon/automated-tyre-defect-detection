@@ -1,10 +1,57 @@
 from loguru import logger 
+from tqdm import tqdm 
 
 from torch.nn import Module, Conv2d, Sequential, ELU, MaxPool2d, Linear, CrossEntropyLoss, Flatten
-from torch.optim import Adam
+from torch.optim import Adam, SGD, RMSprop
+from torch.optim.optimizer import Optimizer
+from torch import cuda, device 
 
 from src.setup.paths import TRAINING_DATA_DIR
-from src.feature_pipeline.training_data import make_training_data, get_classes
+from src.feature_pipeline.training_data import make_dataset, get_classes
+
+
+def get_optimizer(
+    model: CNN,
+    optimizer: str,
+    learning_rate: float
+) -> Optimizer:
+
+    """
+    The function returns the required optimizer function, based on
+    the entered specifications.
+
+    Args: 
+        Model: the model that is being trained
+
+        optimizer: the function that will be used to search 
+                   for the global minimum of the loss function.
+
+        learning_rate: the learning rate that is optimizer is using for 
+                        its search.
+                        
+    Raises:
+        NotImplementedError: The requested optimizer has not been implemented
+
+    Returns:
+        Optimizer: the optimizer that will be returned.
+    """
+
+    opts_and_possible_names = {
+        ("adam", "Adam"): Adam(params=model.parameters(), lr=learning_rate),
+        ("sgd", "SGD"): SGD(params=model.parameters(), lr=learning_rate),
+        ("rmsprop", "RMSprop"): RMSprop(params=model.parameters(), lr=learning_rate)
+    }
+
+    optimizers_and_names = {
+        name: optimizer for names, optimizers in opts_and_possible_names.items() for name in names
+    }
+
+    if model in optimizers_and_names.keys():
+
+        return optimizers_and_names[model]
+
+    else:
+        raise NotImplementedError("Consider using the Adam, SGD, or RMSprop optimizers")
 
 
 class CNN(Module):
@@ -37,7 +84,7 @@ class CNN(Module):
 
     def forward(self, image):
 
-        """
+        """igni
         Implement a forward pass, applying the extractor and 
         classifier to the input image.
         """ 
@@ -48,32 +95,61 @@ class CNN(Module):
         return x
 
 
+def choose_training_device(model: CNN):
+
+    """
+    Check whether a GPU is available. If it is, use it.
+    Otherwise, default to using the CPU.
+    """
+
+    if cuda.is_available():
+        device = device("cuda")
+
+    else:
+        device = device("cpu")
+
+    model.to(device)
+
+
 def train(
-    model: CNN,
-    num_classes: int,
+    batch_size: int,
     learning_rate: int,
-    num_epochs: int
+    num_epochs: int,
+    optimizer: str,
+    device: str
 ):
     
-    logger.info("Setting up neural network")
-
-    model = CNN(num_classes=12)
     classes = get_classes()
+
+    logger.info("Setting up neural network")
+    model = CNN(num_classes=len(classes))
     criterion = CrossEntropyLoss()
-
-    optimizer = Adam(
-        params=model.parameters(), 
-        lr=learning_rate
-    )
     
-    training_data = make_training_data()
-    logger.info("Training the network")
-    
-    for epoch in range(num_epochs):
+    optimizer = get_optimizer(
+        model=model, 
+        learning_rate=learning_rate,
+        optimizer=optimizer
+        )
 
-        for images, classes in training_data:
+    logger.info("Collecting training data")
+    train_loader = make_dataset(path=TRAINING_DATA_DIR, batch_size=batch_size)
+
+    logger.info(f"Training the network via {device}") 
+    for epoch in tqdm(range(num_epochs)):
+
+        training_loss = 0.0
+        val_loss = 0.0
+
+        model.train()
+
+        for batch in train_loader:
 
             optimizer.zero_grad()
+            images, classes = batch
+
+            images = images.to(device)
+            classes = classes.to(device)
+
             outputs = model(images)
             loss = criterion(outputs, classes)
 
@@ -81,11 +157,3 @@ def train(
             optimizer.step()
     
     logger.info("Finished Training")
-
-
-train(
-    model=CNN(num_classes=12),
-    num_classes=12,
-    learning_rate=0.01,
-    num_epochs=10
-)
