@@ -1,7 +1,7 @@
 import os 
 from typing import List, Tuple
 
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFlip, RandomRotation, RandomAutocontrast 
 
@@ -31,47 +31,55 @@ def get_classes(path: str = TRAINING_DATA_DIR) -> List:
     return classes
 
 
-def set_transforms(
-    rotation_degrees: int = 45,
-    size: Tuple[int, int] = (128,128)
-) -> Compose:
-
-    """
-    Initialise the transforms that will be used for data
-    augmentation of our images.
-
-    Returns:
-        _type_: _description_
-    """
-
-    transforms = Compose([
-        RandomHorizontalFlip(),
-        RandomRotation(degrees=rotation_degrees),
-        RandomAutocontrast(),
-        ToTensor(), 
-        Resize(size=size)
-    ])
-
-    return transforms
-
-
 def make_dataset(
     path: str, 
     batch_size: int
 ) -> DataLoader:
 
     """
+    Initialise the transforms that will be used for data
+    augmentation of our images. The exact transforms
+    that will be used depend on whether the model is 
+    being trained, validated during training, or 
+    tested after training.
+
     Torchvision's ImageFolder class expects images to be in 
     directories, one for each class (which is awfully convenient).
-    We will set up a Dataloader for the training, validation, and 
+    We can set up a Dataloader for the training, validation, and 
     testing data.
+
+    Args:
+        path: the location of the folder containing the images
+              This will determine which transforms will be applied
+        
+        batch_size: the size of the batches that the dataset will
+                    be divided into.
 
     Returns:
         DataLoader: a Dataloader object which contains the 
                     training/validation/testing data.
     """
 
-    transforms = set_transforms()
+    # Initialise the image transformations
+    match path:
+
+        case TRAINING_DATA_DIR:
+
+            transforms = Compose([
+                RandomHorizontalFlip(),
+                RandomRotation(degrees=45),
+                RandomAutocontrast(),
+                ToTensor(), 
+                Resize(size=(128,128))
+            ])
+
+        case VALIDATION_DATA_DIR | TEST_DATA_DIR:
+
+            transforms = Compose([
+                ToTensor(),
+                Resize(size=(128,128))
+            ])
+    
 
     data = ImageFolder(root=path, transform=transforms)
     data_loader = DataLoader(dataset=training_data, shuffle=True, batch_size=batch_size)
