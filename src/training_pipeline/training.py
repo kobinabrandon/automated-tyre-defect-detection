@@ -195,9 +195,9 @@ def train(
                 images, label = batch
 
                 images = images.to(device)
-                ouput = model(images)
-
                 label = label.to(device)
+
+                ouput = model(images)
                 val_loss = criterion(output, label)
                 
                 _ , predictions = torch.max(input=outputs, dim=1)

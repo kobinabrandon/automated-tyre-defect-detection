@@ -82,6 +82,6 @@ def make_dataset(
     
 
     data = ImageFolder(root=path, transform=transforms)
-    data_loader = DataLoader(dataset=training_data, shuffle=True, batch_size=batch_size)
+    data_loader = DataLoader(dataset=data, shuffle=True, batch_size=batch_size)
 
     return data_loader
