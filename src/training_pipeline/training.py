@@ -8,61 +8,14 @@ from torch.nn import (
 )
 
 from torch.optim import Adam, SGD, RMSprop
-from torch.optim.optimizer import Optimizer
-from torch import cuda, device 
+from torch.optim.optimizer import Optimizer 
 
 from torchmetrics.classification import (
     MulticlassPrecision, MulticlassAccuracy, MulticlassRecall, MulticlassConfusionMatrix
 )
 
 from src.setup.paths import TRAINING_DATA_DIR, VALIDATION_DATA_DIR, MODELS_DIR
-from src.feature_pipeline.training_data import make_dataset, get_classes
-from src.training_pipeline.training import CNN
-from src.training_pipeline.evaluation import evaluate_model
-
-
-def get_optimizer(
-    model: CNN,
-    optimizer: str,
-    learning_rate: float
-) -> Optimizer:
-
-    """
-    The function returns the required optimizer function, based on
-    the entered specifications.
-
-    Args: 
-        Model: the model that is being trained
-
-        optimizer: the function that will be used to search 
-                   for the global minimum of the loss function.
-
-        learning_rate: the learning rate that is optimizer is using for 
-                        its search.
-                        
-    Raises:
-        NotImplementedError: The requested optimizer has not been implemented
-
-    Returns:
-        Optimizer: the optimizer that will be returned.
-    """
-
-    opts_and_possible_names = {
-        ("adam", "Adam"): Adam(params=model.parameters(), lr=learning_rate),
-        ("sgd", "SGD"): SGD(params=model.parameters(), lr=learning_rate),
-        ("rmsprop", "RMSprop"): RMSprop(params=model.parameters(), lr=learning_rate)
-    }
-
-    optimizers_and_names = {
-        name: optimizer for names, optimizers in opts_and_possible_names.items() for name in names
-    }
-
-    if model in optimizers_and_names.keys():
-
-        return optimizers_and_names[model]
-
-    else:
-        raise NotImplementedError("Consider using the Adam, SGD, or RMSprop optimizers")
+from src.feature_pipeline.data_preparation import make_dataset, get_classes
 
 
 class CNN(Module):
@@ -106,6 +59,51 @@ class CNN(Module):
         return x
 
 
+def get_optimizer(
+    model: CNN,
+    optimizer: str,
+    learning_rate: float
+) -> Optimizer:
+
+    """
+    The function returns the required optimizer function, based on
+    the entered specifications.
+
+    Args: 
+        Model: the model that is being trained
+
+        optimizer: the function that will be used to search 
+                   for the global minimum of the loss function.
+
+        learning_rate: the learning rate that is optimizer is using for 
+                        its search.
+                        
+    Raises:
+        NotImplementedError: The requested optimizer has not been implemented
+
+    Returns:
+        Optimizer: the optimizer that will be returned.
+    """
+
+    optimizers_and_likely_spellings = {
+        ("adam", "Adam"): Adam(params=model.parameters(), lr=learning_rate),
+        ("sgd", "SGD"): SGD(params=model.parameters(), lr=learning_rate),
+        ("rmsprop", "RMSprop"): RMSprop(params=model.parameters(), lr=learning_rate)
+    }
+
+    optimizer_for_each_spelling = {
+        spelling: function for spellings, function in 
+        optimizers_and_likely_spellings.items() for spelling in spellings
+    }
+
+    if optimizer in optimizer_for_each_spelling.keys():
+
+        return optimizer_for_each_spelling[optimizer]
+
+    else:
+        raise NotImplementedError("Consider using the Adam, SGD, or RMSprop optimizers")
+
+
 def set_training_device(model: CNN):
 
     """
@@ -113,11 +111,11 @@ def set_training_device(model: CNN):
     Otherwise, default to using the CPU.
     """
 
-    if cuda.is_available():
-        device = device("cuda")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
 
     else:
-        device = device("cpu")
+        device = torch.device("cpu")
 
     model.to(device)
 
@@ -225,3 +223,14 @@ def train(
         torch.save(model, MODELS_DIR)
     
     logger.info("Finished Training")
+
+
+
+train(
+    batch_size=20,
+    learning_rate=0.01,
+    num_epochs=10,
+    optimizer="adam",
+    device="cpu",
+    save=True
+)

@@ -1,11 +1,13 @@
 import os 
+
+from pathlib import PosixPath
 from typing import List, Tuple
 
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFlip, RandomRotation, RandomAutocontrast 
 
-from src.setup.paths import TRAINING_DATA_DIR, TEST_DATA_DIR
+from src.setup.paths import TRAINING_DATA_DIR, VALIDATION_DATA_DIR, TEST_DATA_DIR
 
 
 def get_classes(path: str = TRAINING_DATA_DIR) -> List: 
@@ -32,7 +34,7 @@ def get_classes(path: str = TRAINING_DATA_DIR) -> List:
 
 
 def make_dataset(
-    path: str, 
+    path: PosixPath, 
     batch_size: int
 ) -> DataLoader:
 
@@ -61,24 +63,22 @@ def make_dataset(
     """
 
     # Initialise the image transformations
-    match path:
+    if path == TRAINING_DATA_DIR:
 
-        case TRAINING_DATA_DIR:
+        transforms = Compose([
+            RandomHorizontalFlip(),
+            RandomRotation(degrees=45),
+            RandomAutocontrast(),
+            ToTensor(), 
+            Resize(size=(128,128))
+        ])
 
-            transforms = Compose([
-                RandomHorizontalFlip(),
-                RandomRotation(degrees=45),
-                RandomAutocontrast(),
-                ToTensor(), 
-                Resize(size=(128,128))
-            ])
+    if path == VALIDATION_DATA_DIR or path == TEST_DATA_DIR:
 
-        case VALIDATION_DATA_DIR | TEST_DATA_DIR:
-
-            transforms = Compose([
-                ToTensor(),
-                Resize(size=(128,128))
-            ])
+        transforms = Compose([
+            ToTensor(),
+            Resize(size=(128,128))
+        ])
     
 
     data = ImageFolder(root=path, transform=transforms)
