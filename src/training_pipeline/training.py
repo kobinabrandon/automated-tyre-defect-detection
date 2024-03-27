@@ -48,7 +48,7 @@ class CNN(Module):
 
     def forward(self, image):
 
-        """igni
+        """
         Implement a forward pass, applying the extractor and 
         classifier to the input image.
         """ 
@@ -141,7 +141,7 @@ def train(
     
     criterion = CrossEntropyLoss()
     
-    optimizer = get_optimizer(
+    chosen_optimizer = get_optimizer(
         model=model, 
         learning_rate=learning_rate,
         optimizer=optimizer
@@ -151,36 +151,52 @@ def train(
     train_loader = make_dataset(path=TRAINING_DATA_DIR, batch_size=batch_size)
     train_iterator = iter(train_loader)
 
-    logger.info(f"Setting training device to {device}")
-    set_training_device(model=model)
+    logger.info(f"Setting training device")
+    device = set_training_device(model=model)
 
     logger.info(f"Training...") 
-    for epoch in tqdm(iterable=range(num_epochs)):
+    for epoch in range(num_epochs):
 
-        training_loss = 0.0
-        val_loss = 0.0
+        logger.info(f"Starting Epoch {epoch+1}")
+
+        # Put model in training mode
         model.train()
 
-        for batch in train_loader:
+        # Initialise training loss
+        training_loss_total = 0.0
+
+        for batch in tqdm(train_loader):
 
             # Refresh gradients
-            optimizer.zero_grad()
+            chosen_optimizer.zero_grad()
             images, label = batch
 
             images = images.to(device)
             label = label.to(device)
             
             output = model(images)
-            loss = criterion(output, label)
-            loss.backward()
-            optimizer.step()
 
-            training_loss += loss.item()
+            # Calculate the training loss 
+            training_loss = criterion(output, label)
 
-        training_loss /= len(train_iterator)
+            # Calculate the gradient of the loss function
+            training_loss.backward()
 
-        # Set the model in evaluation mode
+            # Adjust weights and biases
+            chosen_optimizer.step()
+
+            training_loss_total += training_loss.item()
+
+        training_loss_avg = training_loss_total / len(train_iterator)
+
+        # Put the model in evaluation mode
         model.eval()
+
+        # Initialise validation loss
+        val_loss_total = 0.0
+        val_recall_total = 0.0
+        val_accuracy_total = 0.0
+        val_precision_total = 0.0
 
         # Get validation data
         val_data_loader = make_dataset(path=VALIDATION_DATA_DIR, batch_size=batch_size)
@@ -195,42 +211,47 @@ def train(
                 images = images.to(device)
                 label = label.to(device)
 
-                ouput = model(images)
-                val_loss = criterion(output, label)
-                
-                _ , predictions = torch.max(input=outputs, dim=1)
+                output = model.forward(images)
+                val_loss = criterion(output, label).item()
+
+                val_loss_total += val_loss
+
+                _ , predictions = torch.max(input=output, dim=1)
 
                 val_recall = recall(predictions, label)
                 val_accuracy = accuracy(predictions, label)
                 val_precision = precision(predictions, label)
 
-                for metric in [val_recall, val_accuracy, val_precision]:
+                val_recall_total += val_recall
+                val_accuracy_total += val_accuracy
+                val_precision_total += val_precision
 
-                    metric.compute()
+            val_loss_avg = val_loss_total / len(val_iterator)
 
-                val_loss = loss.item()
-            
-            val_loss /= len(val_iterator)
+            val_recall_avg = val_recall_total / len(val_iterator)
+            val_accuracy_avg = val_accuracy_total / len(val_iterator)
+            val_precision_avg = val_precision_total / len(val_iterator)
 
             logger.success(
-                "Epoch: {}, Training Loss: {:.2f}, Validation_loss: {:.2f}, \
-                Accuracy: {:.2f}, Recall: {:.2f}, Precision: {:.2f} \
-                ".format(epoch, training_loss, val_loss, val_accuracy, val_recall, val_precision)
+                "Epoch: {}, Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, \
+                Average Accuracy: {:.2f}, Average Recall: {:.2f}, Average Precision: {:.2f} \
+                ".format(epoch, training_loss_avg, val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg)
             )
 
+    # Save model parameters
     if save:
-
-        torch.save(model, MODELS_DIR)
+        torch.save(model.state_dict(), MODELS_DIR)
     
     logger.info("Finished Training")
 
 
+if __name__ == "__main__":
 
-train(
-    batch_size=20,
-    learning_rate=0.01,
-    num_epochs=10,
-    optimizer="adam",
-    device="cpu",
-    save=True
-)
+    train(
+        batch_size=20,
+        learning_rate=0.01,
+        num_epochs=10,
+        optimizer="adam",
+        device="cpu",
+        save=True
+    )
