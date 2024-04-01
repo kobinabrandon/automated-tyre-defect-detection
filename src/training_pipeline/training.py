@@ -1,69 +1,63 @@
-import torch 
+import os
+import torch
 
 from loguru import logger 
 from tqdm import tqdm 
+from argparse import ArgumentParser
+from comet_ml import Experiment
 
-from torch.nn import (
-    Module, Conv2d, Sequential, ELU, MaxPool2d, Linear, CrossEntropyLoss, Flatten
-)
-
+from torch.nn import CrossEntropyLoss
 from torch.optim import Adam, SGD, RMSprop
 from torch.optim.optimizer import Optimizer 
 
 from torchmetrics.classification import (
-    MulticlassPrecision, MulticlassAccuracy, MulticlassRecall, MulticlassConfusionMatrix
+    MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
 )
 
 from src.setup.paths import TRAINING_DATA_DIR, VALIDATION_DATA_DIR, MODELS_DIR
 from src.feature_pipeline.data_preparation import make_dataset, get_classes
+from src.training_pipeline.models import BaseCNN, DynamicCNN
+from src.training_pipeline.hyperparameter_tuning import optimise_hyperparams
 
 
-class CNN(Module):
+def get_model(model: str) -> BaseCNN|DynamicCNN:
 
-    """ Create a convolutional neural network """
-    def __init__(self, num_classes: int):
-        
-        """     
-        Initialise the attributes of the CNN.
+    """
+    Takes either the string "base" or "dynamic" and returns 
+    the corresponding model object.
 
-        Args 
-        - num_classes: the number of genera of the mushrooms
-        """
+    Raises:
+        Exception: a string other than the two accepted ones 
+                   as provided
 
-        super().__init__()
-        self.feature_extractor = Sequential(    
-            Conv2d(3, 8, kernel_size=3, padding=1),
-            ELU(),
-            MaxPool2d(kernel_size=2),
-            Conv2d(8, 16, kernel_size=3, padding=1),
-            ELU(),
-            MaxPool2d(kernel_size=2),
-            Flatten()
+    Returns: 
+        BaseCNN or DynamicCNN: the model object, which will later 
+                               be initialised
+    """
+
+    models_and_names = {
+        "base": BaseCNN,
+        "dynamic": DynamicCNN
+    }
+
+    if model in models_and_names.keys():
+
+        return models_and_names[model]
+
+    else:
+
+        raise Exception(
+            "Please enter 'base' for the base model, or 'dynamic' for the dymnamic model"
         )
-
-        self.classifier = Linear(
-            in_features=16*32*32, 
-            out_features=num_classes
-        )
-
-    def forward(self, image):
-
-        """
-        Implement a forward pass, applying the extractor and 
-        classifier to the input image.
-        """ 
-
-        x = self.feature_extractor(image)
-        x = self.classifier(x)
-
-        return x
 
 
 def get_optimizer(
-    model: CNN,
+    model: BaseCNN|DynamicCNN,
     optimizer: str,
-    learning_rate: float
-) -> Optimizer:
+    learning_rate: float,
+    weight_decay: float|None,
+    momentum: float|None
+    ) -> Optimizer:
 
     """
     The function returns the required optimizer function, based on
@@ -72,8 +66,8 @@ def get_optimizer(
     Args: 
         Model: the model that is being trained
 
-        optimizer: the function that will be used to search 
-                   for the global minimum of the loss function.
+        optimizer: the function that will be used to search for the 
+                   global minimum of the loss function.
 
         learning_rate: the learning rate that is optimizer is using for 
                         its search.
@@ -86,9 +80,9 @@ def get_optimizer(
     """
 
     optimizers_and_likely_spellings = {
-        ("adam", "Adam"): Adam(params=model.parameters(), lr=learning_rate),
-        ("sgd", "SGD"): SGD(params=model.parameters(), lr=learning_rate),
-        ("rmsprop", "RMSprop"): RMSprop(params=model.parameters(), lr=learning_rate)
+        ("adam", "Adam"): Adam(params=model.parameters(), lr=learning_rate, weight_decay=weight_decay),
+        ("sgd", "SGD"): SGD(params=model.parameters(), lr=learning_rate, momentum=momentum),
+        ("rmsprop", "RMSprop"): RMSprop(params=model.parameters(), lr=learning_rate, momentum=momentum)
     }
 
     optimizer_for_each_spelling = {
@@ -104,60 +98,61 @@ def get_optimizer(
         raise NotImplementedError("Consider using the Adam, SGD, or RMSprop optimizers")
 
 
-def set_training_device(model: CNN):
+def set_training_device(model: BaseCNN|DynamicCNN):
 
-    """
-    Check whether a GPU is available. If it is, use it.
-    Otherwise, default to using the CPU.
-    """
+    """ Use the GPU if available. Otherwise, default to using the CPU. """
 
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-
-    else:
-        device = torch.device("cpu")
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
 
-def train(
-    batch_size: int,
-    learning_rate: int,
+def run_training_loop(
+    model: BaseCNN|DynamicCNN, 
+    criterion: callable,
+    save: bool,
+    optimizer: callable,
     num_epochs: int,
-    optimizer: str,
-    device: str,
-    save: bool
-):
-    
-    classes = get_classes()
+    num_classes: int,
+    batch_size: int
+    ) -> tuple[float, float, float, float]:
+
+    """
+
+    Args:
+        model: the model object that is to be trained
+
+        criterion: the loss function to be used 
+        
+        save: whether or not the model is to be saved
+
+        optimizer: the optimizer that we will use to 
+                   seek the global minimum of the loss 
+                   function
+
+        num_epochs: the number of epochs that the model
+                    should be trained for
+
+        num_classes: the number of classes (genera) the 
+                     mushrooms should be classified into
+
+    """
 
     # Prepare metrics
-    precision = MulticlassPrecision(num_classes=len(classes), average="macro")
-    recall = MulticlassRecall(num_classes=len(classes), average="macro")
-    accuracy = MulticlassAccuracy(num_classes=len(classes), average="macro")
-
-    logger.info("Setting up neural network")
-    model = CNN(num_classes=len(classes))
-    
-    criterion = CrossEntropyLoss()
-    
-    chosen_optimizer = get_optimizer(
-        model=model, 
-        learning_rate=learning_rate,
-        optimizer=optimizer
-    )
+    precision = MulticlassPrecision(num_classes=num_classes, average="macro")
+    recall = MulticlassRecall(num_classes=num_classes, average="macro")
+    accuracy = MulticlassAccuracy(num_classes=num_classes, average="macro")
 
     logger.info("Collecting training data")
     train_loader = make_dataset(path=TRAINING_DATA_DIR, batch_size=batch_size)
     train_iterator = iter(train_loader)
 
-    logger.info(f"Setting training device")
+    logger.info("Setting training device")
     device = set_training_device(model=model)
 
-    logger.info(f"Training...") 
+    logger.info("Training an untuned model") 
     for epoch in range(num_epochs):
 
-        logger.info(f"Starting Epoch {epoch+1}")
+        logger.info(f"Starting Epoch {epoch}")
 
         # Put model in training mode
         model.train()
@@ -168,7 +163,7 @@ def train(
         for batch in tqdm(train_loader):
 
             # Refresh gradients
-            chosen_optimizer.zero_grad()
+            optimizer.zero_grad()
             images, label = batch
 
             images = images.to(device)
@@ -183,7 +178,7 @@ def train(
             training_loss.backward()
 
             # Adjust weights and biases
-            chosen_optimizer.step()
+            optimizer.step()
 
             training_loss_total += training_loss.item()
 
@@ -229,6 +224,7 @@ def train(
             val_loss_avg = val_loss_total / len(val_iterator)
 
             val_recall_avg = val_recall_total / len(val_iterator)
+
             val_accuracy_avg = val_accuracy_total / len(val_iterator)
             val_precision_avg = val_precision_total / len(val_iterator)
 
@@ -238,6 +234,8 @@ def train(
                 ".format(epoch, training_loss_avg, val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg)
             )
 
+            return val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg
+
     # Save model parameters
     if save:
         torch.save(model.state_dict(), MODELS_DIR)
@@ -245,13 +243,102 @@ def train(
     logger.info("Finished Training")
 
 
+def train(
+    model: str,
+    batch_size: int,
+    learning_rate: int,
+    num_epochs: int|None,
+    optimizer: str,
+    device: str,
+    save: bool,
+    tune_hyperparams: bool|None = True,
+    tuning_trials: int|None = 10
+    ):
+
+    """
+    Train the requested model in either an untuned 
+    default state, or in the most optimal tuned form 
+    that was obtained after the specified number of 
+    tuning trials.
+
+
+    """
+    
+    num_classes = len(get_classes())
+
+    experiment = Experiment(
+        api_key=os.getenv("COMET_API_KEY"),
+        project_name=os.getenv("COMET_PROJECT_NAME"),
+        workspace=os.getenv("COMET_WORKSPACE"),
+        log_code=False
+    )
+
+    logger.info("Setting up neural network")
+    model_fn = get_model(model=model)
+
+    if not tune_hyperparams:
+
+        if isinstance(model_fn, BaseCNN):
+
+            model = model_fn(num_classes=num_classes)
+
+        if isinstance(model_fn, DynamicCNN):
+
+            default_layer_config = {
+                [
+                    {"type": "conv", "out_channels": 8, "kernel_size": 8, "padding": 1, "pooling": True},
+                    {"type": "conv", "out_channels": 16, "kernel_size": 3, "padding": 1, "pooling": True},
+                    {"type": "fully_connected"}
+                ]
+            }
+
+            model = DynamicCNN(
+                in_channels=3,
+                num_classes=num_classes,
+                layer_config=default_layer_config,
+                dropout_prob=0.5
+            )
+
+        criterion = CrossEntropyLoss()
+
+        chosen_optimizer = get_optimizer(
+            model=model, 
+            learning_rate=learning_rate,
+            optimizer=optimizer
+        )
+
+        val_metrics = run_training_loop(
+            model = model, 
+            num_epochs=10,
+            criterion=criterion,
+            optimizer=chosen_optimizer,
+            num_classes=num_classes,
+            save=True
+        )
+
+    else:
+
+        logger.info("Finding optimal values of hyperparameters")
+
+        optimise_hyperparams(
+            model_fn=model,
+            tuning_trials=10,
+            experiment=experiment
+        )
+
+
 if __name__ == "__main__":
 
+    parser = ArgumentParser()
+
+    parser.add_argument("--model", type=str, default="dynamic")
+    parser.add_argument("--tune_hyperparams", action="store_true", default=True)
+    parser.add_argument("--tuning_trials", type=int, default=10)
+
+    args = parser.parse_args()
+
     train(
-        batch_size=20,
-        learning_rate=0.01,
-        num_epochs=10,
-        optimizer="adam",
-        device="cpu",
-        save=True
+        model=args.model,
+        tune_hyperparams=args.tune_hyperparams,
+        tuning_trials=args.tuning_trials
     )

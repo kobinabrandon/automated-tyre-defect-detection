@@ -1,9 +1,9 @@
 import os 
 
 from pathlib import PosixPath
-from typing import List, Tuple
+from typing import List
 
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFlip, RandomRotation, RandomAutocontrast 
 

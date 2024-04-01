@@ -1,5 +1,3 @@
-from typing import List, Dict
-
 from torch.nn import (
     Module, ModuleList, Conv2d, Dropout, Sequential, ELU, ReLU, MaxPool2d, Linear, Flatten
 )
@@ -52,7 +50,7 @@ class DynamicCNN(Module):
         self, 
         in_channels: int, 
         num_classes: int, 
-        layer_config: List[Dict],
+        layer_config: list[dict],
         dropout_prob: float
     ):
 
