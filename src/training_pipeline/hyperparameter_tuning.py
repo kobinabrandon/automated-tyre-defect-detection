@@ -1,24 +1,45 @@
+from comet_ml import Experiment
+
+import os 
 import joblib
 
-from comet_ml import Experiment
 from loguru import logger 
-from optuna import trial, create_study, Study
 from torch.nn import CrossEntropyLoss
+from optuna import trial, create_study, Study
+from optuna.visualization import plot_param_importances
 
 from src.feature_pipeline.data_preparation import get_classes
-from src.training_pipeline.training import get_optimizer, run_training_loop, BaseCNN, DynamicCNN
+from src.training_pipeline.training import get_optimizer, run_training_loop
+from src.training_pipeline.models import BaseCNN, DynamicCNN
 from src.setup.paths import TRIALS_DIR
 
 
 def save_trial_callback(study: Study, frozen_trial: trial.FrozenTrial):
 
+    """
+    A callback allowing a given optuna trial to be saved as a pickle file.
+
+    Args:
+
+        study: the optuna optimisation task being run.
+
+        frozen_trial: the trial to be saved.
+    """
+
     trial_name = TRIALS_DIR/f"Trial_{frozen_trial.number}.pkl"
     joblib.dump(value=frozen_trial, filename=trial_name)
  
 
-class BestTrials():
+class BestTrials(trial.Trial):
+
+    """
+    This class contains the trials of a given optuna study that optimize the
+    average values of the validation loss, recall, accuracy, and precision
+    """
 
     def __init__(self, study: Study):
+
+        super().__init__()
 
         self.trial_lowest_avg_val_loss = min(study.best_trials, key=lambda t: t.values[0])
         self.trial_highest_avg_val_accuracy = max(study.best_trials, key=lambda t: t.values[1])
@@ -34,9 +55,11 @@ class BestTrials():
 
     def _save_best_trials(self):
 
+        """ Save the best optuna trial for each metric as a pickle file. """
+
         for item in self.metrics_and_trials.items():
 
-            if item[0] == "avg_val_loss":
+            if "loss" in item[0]:
 
                 joblib.dump(
                     value=item[1], filename=TRIALS_DIR/f"Trial with the lowest {item[0]}.pkl"
@@ -48,16 +71,100 @@ class BestTrials():
                     value=item[1], filename=TRIALS_DIR/f"Trial with the highest {item[0]}.pkl"
                 )
 
+    def _display_best_trials(self):
 
-def optimise_hyperparams(
+        """ Display the key details about the best trials """
+
+        for item in self.metrics_and_trials.items():
+
+            if "loss" in item[0]:
+            
+                logger.info(f"Trial with lowest {item[0]}:")
+            
+            else: 
+                logger.info(f"Trial with highest {item[0]}:")
+
+            logger.info(f"number: {item[1].number}")   
+            logger.info(f"params: {item[1].params}")
+            logger.info(f"values: {item[1].values}")   
+
+    def _view_hyperparam_importances(self, study: Study):
+
+        """ Plots hyperparameter importances """
+
+        metric_names = list(self.metrics_and_trials.keys())
+
+        for name in metric_names:
+            
+            plot_param_importances(
+                study=study,
+                target=lambda t: t.values[metric_names.index(name)],
+                target_name=name
+            )
+
+    def _log_with_comet(self):
+
+        """ Log the optimization tasks with CometML """
+
+        experiment = Experiment(
+            api_key=os.getenv("COMET_API_KEY"),
+            project_name=os.getenv("COMET_PROJECT_NAME"),
+            workspace=os.getenv("COMET_WORKSPACE") 
+        )
+
+        for key, value in list(self.metrics_and_trials.items()):
+
+            if "loss" in key:
+        
+                experiment.log_optimization(
+                    metric_name=key,
+                    metric_value=value,
+                    parameters=value.params,
+                    objective="minimize"
+                )
+
+            else:
+
+                experiment.log_optimization(
+                    metric_name=key,
+                    metric_value=value,
+                    parameters=value.params,
+                    objective="maximize"
+                )
+
+            
+def optimize_hyperparams(
     model_fn: BaseCNN|DynamicCNN,
     tuning_trials: int,
     experiment: Experiment
     ):
 
+    """
+    Using the objective function below, optimise the specified hyperparameters by an 
+    optuna study for running the specified number of tuning trials. Then save, display 
+    these trials before logging them with CometML 
+    """
+
     def objective(trial: trial.Trial) -> tuple[float, float, float, float]:
 
+        """
+        For each optuna trial, initialise values of the hyperparameters within the
+        specified ranges, select one of three possible optimizers, and run the 
+        training loop to obtain a tuple of metrics on the validation set. 
+
+        Args:
+            tuning_trials: the number of hyperparameter tuning trials to be run. 
+
+            experiment: a single instance of a CometML experiment.
+
+        Returns:
+            val_metrics: contains a list of floats which are the average values of  
+                         the loss,recall, accuracy, and precision of the trained model 
+                         on the validation set.
+        """
+
         num_classes = len(get_classes())
+        num_epochs = trial.suggest_int(name="num_epochs", low=5, high=20)
 
         if isinstance(model_fn, BaseCNN):
 
@@ -81,24 +188,19 @@ def optimise_hyperparams(
                     "padding": trial.suggest_categorical(name="padding", choices=["same", "valid"])
                 }
 
-                layer_config.append(config)
-
             for _ in range(fully_connected):
 
                 config = {
                     "type": "fully_connected", "out_features": num_classes
                 }
 
-                layer_config.append(config)
+            layer_config.append(config)
             
-            # Create model
             model = model_fn(
                 in_channels=3, 
                 num_classes=num_classes, 
                 layer_config=layer_config
             )
-
-        num_epochs = trial.suggest_int(name="num_epochs", low=5, high=20)
 
         criterion = CrossEntropyLoss()
         
@@ -124,7 +226,6 @@ def optimise_hyperparams(
                 learning_rate=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
                 momentum=trial.suggest_float(name="momentum", low=0.1, high=0.9)
             )
-
         
         val_metrics = run_training_loop(
             model=model, 
@@ -139,10 +240,12 @@ def optimise_hyperparams(
             
     logger.info("Searching for optimal values of the hyperparameters")
 
+    # Create a study that corresponds to the metrics we want to optimize
     study = create_study(
         directions=["minimize", "maximize", "maximize", "maximize"]
     )
 
+    # Perform an optimization task
     study.optimize(
         func=objective, 
         n_trials=tuning_trials, 
@@ -150,19 +253,15 @@ def optimise_hyperparams(
         timeout=300
     )
     
-    logger.info("Number of finished trials:", len(study.trials))
-    
+    logger.info(
+        "Number of finished trials:", len(study.trials)
+    )
+
     best_trials = BestTrials(study=study)
 
-    # Save the best trials
+    # Save and display the best trials
     best_trials._save_best_trials()
+    best_trials._display_best_trials()
 
-    logger.info("The best hyperparameters are:")
-
-    for key, value in study.best_params.items():
-
-        logger.info(f"{key}:{value}")
-
-    experiment.log_metrics(dic=best_trials.metrics_and_trials)
-
-    
+    # Log the optimizations with CometML
+    best_trials._log_with_comet()

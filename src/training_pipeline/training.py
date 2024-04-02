@@ -1,10 +1,11 @@
+from comet_ml import Experiment
+
 import os
 import torch
 
 from loguru import logger 
 from tqdm import tqdm 
 from argparse import ArgumentParser
-from comet_ml import Experiment
 
 from torch.nn import CrossEntropyLoss
 from torch.optim import Adam, SGD, RMSprop
@@ -17,42 +18,10 @@ from torchmetrics.classification import (
 from src.setup.paths import TRAINING_DATA_DIR, VALIDATION_DATA_DIR, MODELS_DIR
 from src.feature_pipeline.data_preparation import make_dataset, get_classes
 from src.training_pipeline.models import BaseCNN, DynamicCNN
-from src.training_pipeline.hyperparameter_tuning import optimise_hyperparams
-
-
-def get_model(model: str) -> BaseCNN|DynamicCNN:
-
-    """
-    Takes either the string "base" or "dynamic" and returns 
-    the corresponding model object.
-
-    Raises:
-        Exception: a string other than the two accepted ones 
-                   as provided
-
-    Returns: 
-        BaseCNN or DynamicCNN: the model object, which will later 
-                               be initialised
-    """
-
-    models_and_names = {
-        "base": BaseCNN,
-        "dynamic": DynamicCNN
-    }
-
-    if model in models_and_names.keys():
-
-        return models_and_names[model]
-
-    else:
-
-        raise Exception(
-            "Please enter 'base' for the base model, or 'dynamic' for the dymnamic model"
-        )
 
 
 def get_optimizer(
-    model: BaseCNN|DynamicCNN,
+    model_fn: BaseCNN|DynamicCNN,
     optimizer: str,
     learning_rate: float,
     weight_decay: float|None,
@@ -60,8 +29,8 @@ def get_optimizer(
     ) -> Optimizer:
 
     """
-    The function returns the required optimizer function, based on
-    the entered specifications.
+    The function returns the required optimizer function, based on the entered
+    specifications.
 
     Args: 
         Model: the model that is being trained
@@ -80,9 +49,9 @@ def get_optimizer(
     """
 
     optimizers_and_likely_spellings = {
-        ("adam", "Adam"): Adam(params=model.parameters(), lr=learning_rate, weight_decay=weight_decay),
-        ("sgd", "SGD"): SGD(params=model.parameters(), lr=learning_rate, momentum=momentum),
-        ("rmsprop", "RMSprop"): RMSprop(params=model.parameters(), lr=learning_rate, momentum=momentum)
+        ("adam", "Adam"): Adam(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay),
+        ("sgd", "SGD"): SGD(params=model_fn.parameters(), lr=learning_rate, momentum=momentum),
+        ("rmsprop", "RMSprop"): RMSprop(params=model_fn.parameters(), lr=learning_rate, momentum=momentum)
     }
 
     optimizer_for_each_spelling = {
@@ -98,16 +67,16 @@ def get_optimizer(
         raise NotImplementedError("Consider using the Adam, SGD, or RMSprop optimizers")
 
 
-def set_training_device(model: BaseCNN|DynamicCNN):
+def set_training_device(model_fn: BaseCNN|DynamicCNN):
 
     """ Use the GPU if available. Otherwise, default to using the CPU. """
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
+    model_fn.to(device)
 
 
 def run_training_loop(
-    model: BaseCNN|DynamicCNN, 
+    model_fn: BaseCNN|DynamicCNN, 
     criterion: callable,
     save: bool,
     optimizer: callable,
@@ -117,25 +86,34 @@ def run_training_loop(
     ) -> tuple[float, float, float, float]:
 
     """
+    Initialise the multi-class precision, recall, and accuracy metrics.
+    Then load the training data and set the training device. Train the 
+    network in question for the specified number of epochs, put the 
+    model in evaluation mode and report the average values of the
+    validation loss, recall, accuracy, and precision
 
     Args:
-        model: the model object that is to be trained
+        model_fn: the model object that is to be trained
 
         criterion: the loss function to be used 
         
         save: whether or not the model is to be saved
 
-        optimizer: the optimizer that we will use to 
-                   seek the global minimum of the loss 
-                   function
+        optimizer: the optimizer that we will use to seek the global
+                minimum of the loss function
+                   
 
-        num_epochs: the number of epochs that the model
-                    should be trained for
+        num_epochs: the number of epochs that the model should be
+                    trained for.
 
-        num_classes: the number of classes (genera) the 
-                     mushrooms should be classified into
+        num_classes: the number of classes (genera) the mushrooms
+                     should be classified into. 
 
-    """
+    Returns:
+        val_metrics: a list of floats which are the average values
+                     of the loss, recall, accuracy, and precision
+                     of the trained model on the validation set.             
+    """ 
 
     # Prepare metrics
     precision = MulticlassPrecision(num_classes=num_classes, average="macro")
@@ -147,15 +125,15 @@ def run_training_loop(
     train_iterator = iter(train_loader)
 
     logger.info("Setting training device")
-    device = set_training_device(model=model)
+    device = set_training_device(model_fn=model_fn)
 
     logger.info("Training an untuned model") 
     for epoch in range(num_epochs):
 
-        logger.info(f"Starting Epoch {epoch}")
+        logger.info("Starting Epoch", epoch)
 
         # Put model in training mode
-        model.train()
+        model_fn.train()
 
         # Initialise training loss
         training_loss_total = 0.0
@@ -169,7 +147,7 @@ def run_training_loop(
             images = images.to(device)
             label = label.to(device)
             
-            output = model(images)
+            output = model_fn._forward(images)
 
             # Calculate the training loss 
             training_loss = criterion(output, label)
@@ -185,7 +163,7 @@ def run_training_loop(
         training_loss_avg = training_loss_total / len(train_iterator)
 
         # Put the model in evaluation mode
-        model.eval()
+        model_fn.eval()
 
         # Initialise validation loss
         val_loss_total = 0.0
@@ -206,7 +184,7 @@ def run_training_loop(
                 images = images.to(device)
                 label = label.to(device)
 
-                output = model.forward(images)
+                output = model_fn.forward(images)
                 val_loss = criterion(output, label).item()
 
                 val_loss_total += val_loss
@@ -238,16 +216,18 @@ def run_training_loop(
 
     # Save model parameters
     if save:
-        torch.save(model.state_dict(), MODELS_DIR)
+        torch.save(model_fn.state_dict(), MODELS_DIR)
     
     logger.info("Finished Training")
 
 
 def train(
-    model: str,
+    model_name: str,
     batch_size: int,
     learning_rate: int,
-    num_epochs: int|None,
+    weight_decay: float|None,
+    momentum: float|None,
+    num_epochs: int,
     optimizer: str,
     device: str,
     save: bool,
@@ -256,12 +236,29 @@ def train(
     ):
 
     """
-    Train the requested model in either an untuned 
-    default state, or in the most optimal tuned form 
-    that was obtained after the specified number of 
+    Train the requested model in either an untuned default state, or in the
+    most optimal tuned form that was obtained after the specified number of 
     tuning trials.
 
+    Args:
 
+        batch_size: the batch size to be used during training.
+
+        learning_rate: the learning rate of the optimizer.
+
+        num_epochs: the number of epochs that the model should be trained 
+                    for.
+
+        optimizer: the name of the optimizer that is to be used.
+
+        device: a string which determines whether the CPU or a GPU will be
+                used for training.
+
+        save: a boolean that determines whether the model is to be saved
+
+        tune_hyperparams: a boolean that indicates whether hyperparameters
+                          are to be tuned or not. If it is False, a default
+                          version of the model will be trained.
     """
     
     num_classes = len(get_classes())
@@ -274,15 +271,14 @@ def train(
     )
 
     logger.info("Setting up neural network")
-    model_fn = get_model(model=model)
 
     if not tune_hyperparams:
 
-        if isinstance(model_fn, BaseCNN):
+        if model_name == "base":
 
-            model = model_fn(num_classes=num_classes)
+            model_fn = BaseCNN(num_classes=num_classes)
 
-        if isinstance(model_fn, DynamicCNN):
+        if model_name == "dynamic":
 
             default_layer_config = {
                 [
@@ -292,7 +288,7 @@ def train(
                 ]
             }
 
-            model = DynamicCNN(
+            model_fn = DynamicCNN(
                 in_channels=3,
                 num_classes=num_classes,
                 layer_config=default_layer_config,
@@ -300,45 +296,47 @@ def train(
             )
 
         criterion = CrossEntropyLoss()
-
+            
         chosen_optimizer = get_optimizer(
-            model=model, 
+            model_fn=model_fn, 
             learning_rate=learning_rate,
-            optimizer=optimizer
+            optimizer=optimizer,
+            weight_decay=weight_decay,
+            momentum=momentum
         )
 
         val_metrics = run_training_loop(
-            model = model, 
-            num_epochs=10,
+            model_fn=model_fn, 
+            num_epochs=num_epochs,
             criterion=criterion,
             optimizer=chosen_optimizer,
             num_classes=num_classes,
+            batch_size=batch_size,
             save=True
         )
 
     else:
 
+        from src.training_pipeline.hyperparameter_tuning import optimize_hyperparams
+
         logger.info("Finding optimal values of hyperparameters")
 
-        optimise_hyperparams(
-            model_fn=model,
+        optimize_hyperparams(
+            model_fn=model_fn,
             tuning_trials=10,
             experiment=experiment
         )
 
 
-if __name__ == "__main__":
-
-    parser = ArgumentParser()
-
-    parser.add_argument("--model", type=str, default="dynamic")
-    parser.add_argument("--tune_hyperparams", action="store_true", default=True)
-    parser.add_argument("--tuning_trials", type=int, default=10)
-
-    args = parser.parse_args()
-
-    train(
-        model=args.model,
-        tune_hyperparams=args.tune_hyperparams,
-        tuning_trials=args.tuning_trials
-    )
+train(
+    model_name="base",
+    batch_size=20,
+    learning_rate=1e-4,
+    num_epochs=10,
+    optimizer="adam",
+    tune_hyperparams=False,
+    device="cpu",
+    weight_decay=0.01,
+    momentum=0.02,
+    save=False
+)

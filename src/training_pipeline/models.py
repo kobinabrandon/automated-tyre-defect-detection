@@ -5,14 +5,13 @@ from torch.nn import (
 
 class BaseCNN(Module): 
 
-    """ Create a convolutional neural network """
+    """ Create a relatively basic convolutional neural network """
     def __init__(self, num_classes: int):
         
         """     
-        Initialise the attributes of the CNN.
-
         Args 
-        - num_classes: the number of genera of the mushrooms
+        - num_classes: the number of genera for our mushroom 
+                       classification problem
         """
 
         super().__init__()
@@ -31,7 +30,7 @@ class BaseCNN(Module):
             out_features=num_classes
         )
 
-    def forward(self, image):
+    def _forward(self, image):
 
         """
         Implement a forward pass, applying the extractor and 
@@ -46,13 +45,18 @@ class BaseCNN(Module):
 
 class DynamicCNN(Module):
 
+    """
+    This is a class that allows us to create architecturally varied CNNs. This 
+    will allow us to play with different model setups to facilitate testing.
+    """
+
     def __init__(
         self, 
         in_channels: int, 
         num_classes: int, 
         layer_config: list[dict],
         dropout_prob: float
-    ):
+    ): 
 
         super().__init__()
         self.layers = self._make_layers(in_channels, num_classes, layer_config)
@@ -60,7 +64,21 @@ class DynamicCNN(Module):
 
     def _make_layers(self, in_channels, num_classes, layer_config) -> ModuleList:    
 
-        layers = ModuleList()
+        """
+        Args:
+            in_channels: number of input channels for a given convolutional layer
+
+            num_classes: the number of genera for our mushroom classification problem
+
+            layer config: a list of dictionaries that defines the whole network. Each
+                          dictionary provides information about each layer. In particular,
+                          each dictionary details the type of layer and its various 
+                          features. For convolutional layers, we specify the number of 
+                          input channels, output channels, the size of the filter/kernel, 
+                          and finally, the stride and padding parameters.
+        """
+
+        layers = ModuleList() 
         prev_in_channels = in_channels
 
         for config in layer_config:
@@ -102,7 +120,14 @@ class DynamicCNN(Module):
         return layers
 
     
-    def forward(self, x):
+    def _forward(self, x):
+
+        """
+        Perform the forward pass
+
+        Returns:
+            x: the output of the forward pass.
+        """
 
         for layer in self.layers:
            x = layer(x)
