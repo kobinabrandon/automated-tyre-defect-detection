@@ -9,7 +9,6 @@ from optuna import trial, create_study, Study
 from optuna.visualization import plot_param_importances
 
 from src.feature_pipeline.data_preparation import get_classes
-from src.training_pipeline.training import get_optimizer, run_training_loop
 from src.training_pipeline.models import BaseCNN, DynamicCNN
 from src.setup.paths import TRIALS_DIR
 
@@ -210,6 +209,8 @@ def optimize_hyperparams(
         )
 
         if optimizer_name == "Adam":
+
+            from src.training_pipeline.training import get_optimizer, run_training_loop
 
             optimizer = get_optimizer(
                 model=model, 

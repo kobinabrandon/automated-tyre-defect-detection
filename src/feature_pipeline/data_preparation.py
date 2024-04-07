@@ -7,10 +7,10 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFlip, RandomRotation, RandomAutocontrast 
 
-from src.setup.paths import TRAINING_DATA_DIR, VALIDATION_DATA_DIR, TEST_DATA_DIR
+from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR
 
 
-def get_classes(path: str = TRAINING_DATA_DIR) -> List: 
+def get_classes(path: str = TRAIN_DATA_DIR) -> List: 
 
     """
     Each class of mushrooms is in a folder, and this function 
@@ -58,7 +58,7 @@ def make_dataset(path: PosixPath, batch_size: int) -> DataLoader:
     """
 
     # Initialise the image transformations
-    if path == TRAINING_DATA_DIR:
+    if path == TRAIN_DATA_DIR:
 
         transforms = Compose([
             RandomHorizontalFlip(),
@@ -68,7 +68,7 @@ def make_dataset(path: PosixPath, batch_size: int) -> DataLoader:
             Resize(size=(128,128))
         ])
 
-    if path == VALIDATION_DATA_DIR or path == TEST_DATA_DIR:
+    if path == VAL_DATA_DIR or path == TEST_DATA_DIR:
 
         transforms = Compose([
             ToTensor(),

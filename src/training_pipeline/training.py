@@ -15,9 +15,29 @@ from torchmetrics.classification import (
     MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
 )
 
-from src.setup.paths import TRAINING_DATA_DIR, VALIDATION_DATA_DIR, MODELS_DIR
+from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR
 from src.feature_pipeline.data_preparation import make_dataset, get_classes
 from src.training_pipeline.models import BaseCNN, DynamicCNN
+
+
+def get_model(model_name: str) -> callable:
+
+    if model_name == "base" or model_name == "Base":
+
+        model_fn = BaseCNN(
+            num_classes=len(get_classes())
+        )
+
+    elif model_name == "dynamic" or model_name == "Dynamic":
+
+        model_fn = DynamicCNN(
+            in_channels=None,
+            num_classes=len(get_classes),
+            layer_config=None,
+            dropout_prob=None
+        )
+
+    return model_fn
 
 
 def get_optimizer(
@@ -121,16 +141,16 @@ def run_training_loop(
     accuracy = MulticlassAccuracy(num_classes=num_classes, average="macro")
 
     logger.info("Collecting training data")
-    train_loader = make_dataset(path=TRAINING_DATA_DIR, batch_size=batch_size)
+    train_loader = make_dataset(path=TRAIN_DATA_DIR, batch_size=batch_size)
     train_iterator = iter(train_loader)
 
     logger.info("Setting training device")
     device = set_training_device(model_fn=model_fn)
 
-    logger.info("Training an untuned model") 
+    logger.info("Training the untuned model")
     for epoch in range(num_epochs):
 
-        logger.info("Starting Epoch", epoch)
+        logger.info(f"Starting Epoch {epoch}")
 
         # Put model in training mode
         model_fn.train()
@@ -172,7 +192,7 @@ def run_training_loop(
         val_precision_total = 0.0
 
         # Get validation data
-        val_data_loader = make_dataset(path=VALIDATION_DATA_DIR, batch_size=batch_size)
+        val_data_loader = make_dataset(path=VAL_DATA_DIR, batch_size=batch_size)
         val_iterator = iter(val_data_loader)
 
         with torch.no_grad():
@@ -184,7 +204,7 @@ def run_training_loop(
                 images = images.to(device)
                 label = label.to(device)
 
-                output = model_fn.forward(images)
+                output = model_fn._forward(images)
                 val_loss = criterion(output, label).item()
 
                 val_loss_total += val_loss
@@ -205,20 +225,21 @@ def run_training_loop(
 
             val_accuracy_avg = val_accuracy_total / len(val_iterator)
             val_precision_avg = val_precision_total / len(val_iterator)
-
+            
             logger.success(
-                "Epoch: {}, Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, \
-                Average Accuracy: {:.2f}, Average Recall: {:.2f}, Average Precision: {:.2f} \
+                "Epoch: {}, Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, Average Accuracy: {:.2f},\
+                 Average Recall: {:.2f}, Average Precision: {:.2f} \
                 ".format(epoch, training_loss_avg, val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg)
             )
-
-            return val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg
 
     # Save model parameters
     if save:
         torch.save(model_fn.state_dict(), MODELS_DIR)
     
     logger.info("Finished Training")
+
+
+    return val_loss_avg, val_accuracy_avg, val_loss_avg, val_precision_avg
 
 
 def train(
@@ -233,7 +254,7 @@ def train(
     save: bool,
     tune_hyperparams: bool|None = True,
     tuning_trials: int|None = 10
-    ):
+    ) -> tuple[float, float, float, float]:
 
     """
     Train the requested model in either an untuned default state, or in the
@@ -274,11 +295,11 @@ def train(
 
     if not tune_hyperparams:
 
-        if model_name == "base":
+        if model_name == "base" or model_name == "Base":
 
             model_fn = BaseCNN(num_classes=num_classes)
 
-        if model_name == "dynamic":
+        if model_name == "dynamic" or model_name == "Dynamic":
 
             default_layer_config = {
                 [
@@ -312,12 +333,14 @@ def train(
             optimizer=chosen_optimizer,
             num_classes=num_classes,
             batch_size=batch_size,
-            save=True
+            save=save
         )
 
     else:
 
         from src.training_pipeline.hyperparameter_tuning import optimize_hyperparams
+
+        model_fn = get_model(model_name=model_name)
 
         logger.info("Finding optimal values of hyperparameters")
 
@@ -327,16 +350,15 @@ def train(
             experiment=experiment
         )
 
-
 train(
-    model_name="base",
+    model_name="Base",
     batch_size=20,
     learning_rate=1e-4,
-    num_epochs=10,
+    num_epochs=2,
     optimizer="adam",
-    tune_hyperparams=False,
+    tune_hyperparams=True,
     device="cpu",
     weight_decay=0.01,
     momentum=0.02,
-    save=False
+    save=True
 )
