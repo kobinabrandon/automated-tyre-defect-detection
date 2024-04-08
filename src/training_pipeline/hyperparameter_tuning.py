@@ -135,6 +135,7 @@ class BestTrials(trial.Trial):
 def optimize_hyperparams(
     model_fn: BaseCNN|DynamicCNN,
     tuning_trials: int,
+    batch_size: int,
     experiment: Experiment
     ):
 
@@ -167,7 +168,7 @@ def optimize_hyperparams(
 
         if isinstance(model_fn, BaseCNN):
 
-            model = model_fn(num_classes=num_classes)
+            model = model_fn
 
         if isinstance(model_fn, DynamicCNN):
 
@@ -208,13 +209,13 @@ def optimize_hyperparams(
             choices=["Adam", "SGD", "RMSProp"]
         )
 
+        from src.training_pipeline.training import get_optimizer, run_training_loop
+
         if optimizer_name == "Adam":
 
-            from src.training_pipeline.training import get_optimizer, run_training_loop
-
             optimizer = get_optimizer(
-                model=model, 
-                optimizer=optimizer_name, 
+                model_fn=model, 
+                optimizer_name=optimizer_name, 
                 learning_rate=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
                 weight_decay=trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True)
             )
@@ -222,18 +223,20 @@ def optimize_hyperparams(
         else: 
 
             optimizer = get_optimizer(
-                model=model,
-                optimizer=optimizer_name,
+                model_fn=model,
+                optimizer_name=optimizer_name, 
                 learning_rate=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
+                weight_decay=trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True),
                 momentum=trial.suggest_float(name="momentum", low=0.1, high=0.9)
             )
         
         val_metrics = run_training_loop(
-            model=model, 
+            model_fn=model, 
             criterion=criterion,
             optimizer=optimizer,
             num_classes=num_classes,
             num_epochs=num_epochs,
+            batch_size=batch_size,
             save=True
         )
         

@@ -42,7 +42,7 @@ def get_model(model_name: str) -> callable:
 
 def get_optimizer(
     model_fn: BaseCNN|DynamicCNN,
-    optimizer: str,
+    optimizer_name: str,
     learning_rate: float,
     weight_decay: float|None,
     momentum: float|None
@@ -53,7 +53,7 @@ def get_optimizer(
     specifications.
 
     Args: 
-        Model: the model that is being trained
+        model_fn: the model that is being trained
 
         optimizer: the function that will be used to search for the 
                    global minimum of the loss function.
@@ -70,18 +70,17 @@ def get_optimizer(
 
     optimizers_and_likely_spellings = {
         ("adam", "Adam"): Adam(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay),
-        ("sgd", "SGD"): SGD(params=model_fn.parameters(), lr=learning_rate, momentum=momentum),
+        ("sgd", "SGD"): SGD(params=model_fn.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay),
         ("rmsprop", "RMSprop"): RMSprop(params=model_fn.parameters(), lr=learning_rate, momentum=momentum)
     }
 
     optimizer_for_each_spelling = {
-        spelling: function for spellings, function in 
-        optimizers_and_likely_spellings.items() for spelling in spellings
+        spelling: function for spellings, function in optimizers_and_likely_spellings.items() for spelling in spellings
     }
 
-    if optimizer in optimizer_for_each_spelling.keys():
+    if optimizer_name in optimizer_for_each_spelling.keys():
 
-        return optimizer_for_each_spelling[optimizer]
+        return optimizer_for_each_spelling[optimizer_name]
 
     else:
         raise NotImplementedError("Consider using the Adam, SGD, or RMSprop optimizers")
@@ -227,9 +226,9 @@ def run_training_loop(
             val_precision_avg = val_precision_total / len(val_iterator)
             
             logger.success(
-                "Epoch: {}, Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, Average Accuracy: {:.2f},\
-                 Average Recall: {:.2f}, Average Precision: {:.2f} \
-                ".format(epoch, training_loss_avg, val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg)
+                "Epoch: {}, Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, Average Accuracy: {:.2f}, Average Recall: {:.2f},\
+                Average Precision: {:.2f}".format(epoch, training_loss_avg, val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg)
+               
             )
 
     # Save model parameters
@@ -249,7 +248,7 @@ def train(
     weight_decay: float|None,
     momentum: float|None,
     num_epochs: int,
-    optimizer: str,
+    optimizer_name: str|None,
     device: str,
     save: bool,
     tune_hyperparams: bool|None = True,
@@ -321,7 +320,7 @@ def train(
         chosen_optimizer = get_optimizer(
             model_fn=model_fn, 
             learning_rate=learning_rate,
-            optimizer=optimizer,
+            optimizer_name=optimizer_name,
             weight_decay=weight_decay,
             momentum=momentum
         )
@@ -347,6 +346,7 @@ def train(
         optimize_hyperparams(
             model_fn=model_fn,
             tuning_trials=10,
+            batch_size=batch_size,
             experiment=experiment
         )
 
@@ -355,7 +355,7 @@ train(
     batch_size=20,
     learning_rate=1e-4,
     num_epochs=2,
-    optimizer="adam",
+    optimizer_name="Adam",  
     tune_hyperparams=True,
     device="cpu",
     weight_decay=0.01,
