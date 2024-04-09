@@ -203,19 +203,19 @@ def optimize_hyperparams(
             )
 
         criterion = CrossEntropyLoss()
-        
-        optimizer_name = trial.suggest_categorical(
+            
+        optimizer_choice = trial.suggest_categorical(
             name="optimizer", 
             choices=["Adam", "SGD", "RMSProp"]
         )
 
         from src.training_pipeline.training import get_optimizer, run_training_loop
 
-        if optimizer_name == "Adam":
+        if optimizer_choice == "Adam":
 
             optimizer = get_optimizer(
                 model_fn=model, 
-                optimizer_name=optimizer_name, 
+                optimizer_name=optimizer_choice, 
                 learning_rate=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
                 weight_decay=trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True)
             )
@@ -224,7 +224,7 @@ def optimize_hyperparams(
 
             optimizer = get_optimizer(
                 model_fn=model,
-                optimizer_name=optimizer_name, 
+                optimizer_name=optimizer_choice, 
                 learning_rate=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
                 weight_decay=trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True),
                 momentum=trial.suggest_float(name="momentum", low=0.1, high=0.9)

@@ -315,6 +315,10 @@ def train(
                 dropout_prob=0.5
             )
 
+        else:
+
+            raise NotImplementedError("The model name you entered is not among the accepted names.")
+
         criterion = CrossEntropyLoss()
             
         chosen_optimizer = get_optimizer(
@@ -355,7 +359,7 @@ train(
     batch_size=20,
     learning_rate=1e-4,
     num_epochs=2,
-    optimizer_name="Adam",  
+    optimizer_name=None,  
     tune_hyperparams=True,
     device="cpu",
     weight_decay=0.01,
