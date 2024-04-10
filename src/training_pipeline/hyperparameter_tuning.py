@@ -5,6 +5,7 @@ import joblib
 
 from loguru import logger 
 from torch.nn import CrossEntropyLoss
+from torch.optim import Adam
 from optuna import trial, create_study, Study
 from optuna.visualization import plot_param_importances
 
@@ -206,18 +207,22 @@ def optimize_hyperparams(
             
         optimizer_choice = trial.suggest_categorical(
             name="optimizer", 
-            choices=["Adam", "SGD", "RMSProp"]
+            choices=["Adam"]
         )
 
         from src.training_pipeline.training import get_optimizer, run_training_loop
 
-        if optimizer_choice == "Adam":
+        logger.warning(f"The optimizer is {optimizer_choice}")
 
-            optimizer = get_optimizer(
-                model_fn=model, 
-                optimizer_name=optimizer_choice, 
-                learning_rate=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
-                weight_decay=trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True)
+        if optimizer_choice == "Adam":
+            
+            # I didn't use get_optimizer() here because I would have to include momentum=None in the arguments
+            # because Adam does not have a momentum parameter. Upon doing this, optuna complains about 
+            # momentum having no value. It's simply easier to call Adam directly here.
+            optimizer = Adam(
+                params=model.parameters(), 
+                lr=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
+                weight_decay=trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True),
             )
 
         else: 

@@ -59,7 +59,7 @@ def get_optimizer(
                    global minimum of the loss function.
 
         learning_rate: the learning rate that is optimizer is using for 
-                        its search.
+                       its search.
                         
     Raises:
         NotImplementedError: The requested optimizer has not been implemented
@@ -71,7 +71,7 @@ def get_optimizer(
     optimizers_and_likely_spellings = {
         ("adam", "Adam"): Adam(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay),
         ("sgd", "SGD"): SGD(params=model_fn.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay),
-        ("rmsprop", "RMSprop"): RMSprop(params=model_fn.parameters(), lr=learning_rate, momentum=momentum)
+        ("rmsprop", "RMSprop", "RMSProp"): RMSprop(params=model_fn.parameters(), lr=learning_rate, momentum=momentum)
     }
 
     optimizer_for_each_spelling = {
@@ -363,6 +363,6 @@ train(
     tune_hyperparams=True,
     device="cpu",
     weight_decay=0.01,
-    momentum=0.02,
+    momentum=None,
     save=True
 )
