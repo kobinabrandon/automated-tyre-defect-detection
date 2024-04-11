@@ -1,7 +1,6 @@
 import os 
 
 from pathlib import PosixPath
-from typing import List
 
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
@@ -10,16 +9,16 @@ from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFl
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR
 
 
-def get_classes(path: str = TRAIN_DATA_DIR) -> List: 
+def get_num_classes(path: str = TRAIN_DATA_DIR) -> int: 
 
     """
     Each class of mushrooms is in a folder, and this function 
     will look through the subdirectories of the folder where 
     the training data is kept. It will then make a list of 
-    these subdirectories, and return said list.
+    these subdirectories, and return the length of said list.
 
     Returns:
-        List: a list of the names of the classes (the genera 
+        int: the length of the list of classes (the genera 
               of mushrooms)
     """
 
@@ -29,7 +28,7 @@ def get_classes(path: str = TRAIN_DATA_DIR) -> List:
         for name in sub_dirs:
             classes.append(name)
 
-    return classes
+    return len(classes)
 
 
 def make_dataset(path: PosixPath, batch_size: int) -> DataLoader:

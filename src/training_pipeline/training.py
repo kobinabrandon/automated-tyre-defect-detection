@@ -16,28 +16,11 @@ from torchmetrics.classification import (
 )
 
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR
-from src.feature_pipeline.data_preparation import make_dataset, get_classes
+from src.feature_pipeline.data_preparation import make_dataset, get_num_classes
 from src.training_pipeline.models import BaseCNN, DynamicCNN
 
 
-def get_model(model_name: str) -> callable:
-
-    if model_name == "base" or model_name == "Base":
-
-        model_fn = BaseCNN(
-            num_classes=len(get_classes())
-        )
-
-    elif model_name == "dynamic" or model_name == "Dynamic":
-
-        model_fn = DynamicCNN(
-            in_channels=None,
-            num_classes=len(get_classes),
-            layer_config=None,
-            dropout_prob=None
-        )
-
-    return model_fn
+num_classes = get_num_classes()
 
 
 def get_optimizer(
@@ -247,6 +230,7 @@ def train(
     learning_rate: int,
     weight_decay: float|None,
     momentum: float|None,
+    dropout_prob: float|None,
     num_epochs: int,
     optimizer_name: str|None,
     device: str,
@@ -281,8 +265,6 @@ def train(
                           version of the model will be trained.
     """
     
-    num_classes = len(get_classes())
-
     experiment = Experiment(
         api_key=os.getenv("COMET_API_KEY"),
         project_name=os.getenv("COMET_PROJECT_NAME"),
@@ -299,7 +281,9 @@ def train(
             model_fn = BaseCNN(num_classes=num_classes)
 
         if model_name == "dynamic" or model_name == "Dynamic":
+            
 
+            # Provide a default configuration
             default_layer_config = {
                 [
                     {"type": "conv", "out_channels": 8, "kernel_size": 8, "padding": 1, "pooling": True},
@@ -312,7 +296,7 @@ def train(
                 in_channels=3,
                 num_classes=num_classes,
                 layer_config=default_layer_config,
-                dropout_prob=0.5
+                dropout_prob=dropout_prob
             )
 
         else:
@@ -343,22 +327,21 @@ def train(
 
         from src.training_pipeline.hyperparameter_tuning import optimize_hyperparams
 
-        model_fn = get_model(model_name=model_name)
-
         logger.info("Finding optimal values of hyperparameters")
 
         optimize_hyperparams(
-            model_fn=model_fn,
+            model_name=model_name,
             tuning_trials=10,
             batch_size=batch_size,
             experiment=experiment
         )
 
 train(
-    model_name="Base",
+    model_name="Dynamic",
     batch_size=20,
     learning_rate=1e-4,
     num_epochs=2,
+    dropout_prob=None,
     optimizer_name=None,  
     tune_hyperparams=True,
     device="cpu",

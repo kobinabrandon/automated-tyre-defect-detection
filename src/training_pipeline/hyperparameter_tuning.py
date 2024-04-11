@@ -9,7 +9,7 @@ from torch.optim import Adam
 from optuna import trial, create_study, Study
 from optuna.visualization import plot_param_importances
 
-from src.feature_pipeline.data_preparation import get_classes
+from src.feature_pipeline.data_preparation import get_num_classes
 from src.training_pipeline.models import BaseCNN, DynamicCNN
 from src.setup.paths import TRIALS_DIR
 
@@ -134,7 +134,7 @@ class BestTrials(trial.Trial):
 
             
 def optimize_hyperparams(
-    model_fn: BaseCNN|DynamicCNN,
+    model_name: str,
     tuning_trials: int,
     batch_size: int,
     experiment: Experiment
@@ -164,14 +164,14 @@ def optimize_hyperparams(
                          on the validation set.
         """
 
-        num_classes = len(get_classes())
+        num_classes = get_num_classes()
         num_epochs = trial.suggest_int(name="num_epochs", low=5, high=20)
 
-        if isinstance(model_fn, BaseCNN):
+        if model_name in ("base", "Base"):
 
-            model = model_fn
+            model = BaseCNN(num_classes=num_classes)
 
-        if isinstance(model_fn, DynamicCNN):
+        elif model_name in ("dynamic", "Dynamic") :
 
             # Choose the number of convolutional, and fully connected layers
             conv_layers = trial.suggest_int(name="conv_layers", low=1, high=4)
@@ -197,17 +197,18 @@ def optimize_hyperparams(
 
             layer_config.append(config)
             
-            model = model_fn(
+            model = DynamicCNN(
                 in_channels=3, 
                 num_classes=num_classes, 
-                layer_config=layer_config
+                layer_config=layer_config,
+                dropout_prob=trial.suggest_int(name="dropout", low=0.05, high=0.5)
             )
 
         criterion = CrossEntropyLoss()
             
         optimizer_choice = trial.suggest_categorical(
             name="optimizer", 
-            choices=["Adam"]
+            choices=["Adam", "SGD", "RMSProp"]
         )
 
         from src.training_pipeline.training import get_optimizer, run_training_loop
