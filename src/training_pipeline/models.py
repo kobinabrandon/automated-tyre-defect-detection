@@ -86,7 +86,7 @@ class DynamicCNN(Module):
             if config["type"] == "conv":
 
                 layers.append(
-                    Conv2d(
+                    module=Conv2d(
                         in_channels=prev_in_channels, 
                         out_channels=config["out_channels"], 
                         kernel_size=config["kernel_size"],
@@ -95,18 +95,20 @@ class DynamicCNN(Module):
                     )
                 )
 
-                layers.append(ELU())
+                layers.append(module=ELU())
                 
                 prev_in_channels = config["out_channels"]
             
             elif config["type"] == "fully_connected":
- 
+                
+                # The append method allows only one pytorch module object to be added at a time
                 layers.append(
-                    Linear(in_features=prev_in_channels, out_features=num_classes),
-                    ReLU()
+                    module=Linear(in_features=prev_in_channels, out_features=num_classes)
                 )
 
-            if config.get(key="pooling", default=False):    
+                layers.append(module=ReLU())
+
+            if config.get("pooling", False):    
 
                 layers.append(
                     MaxPool2d(kernel_size=config["kernel_size"])            

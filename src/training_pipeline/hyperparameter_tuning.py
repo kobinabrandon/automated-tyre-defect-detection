@@ -213,8 +213,6 @@ def optimize_hyperparams(
 
         from src.training_pipeline.training import get_optimizer, run_training_loop
 
-        logger.warning(f"The optimizer is {optimizer_choice}")
-
         if optimizer_choice == "Adam":
             
             # I didn't use get_optimizer() here because I would have to include momentum=None in the arguments
