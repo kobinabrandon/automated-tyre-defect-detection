@@ -1,6 +1,5 @@
 from comet_ml import Experiment
 
-import os
 import torch
 
 from loguru import logger 
@@ -15,9 +14,10 @@ from torchmetrics.classification import (
     MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
 )
 
+from src.setup.config import settings
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR
 from src.feature_pipeline.data_preparation import make_dataset, get_num_classes
-from src.training_pipeline.models import BaseCNN, DynamicCNN
+from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN
 
 
 num_classes = get_num_classes()
@@ -52,9 +52,17 @@ def get_optimizer(
     """
 
     optimizers_and_likely_spellings = {
-        ("adam", "Adam"): Adam(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay),
-        ("sgd", "SGD"): SGD(params=model_fn.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay),
-        ("rmsprop", "RMSprop", "RMSProp"): RMSprop(params=model_fn.parameters(), lr=learning_rate, momentum=momentum)
+        ("adam", "Adam"): Adam(
+            params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay
+        ),
+
+        ("sgd", "SGD"): SGD(
+            params=model_fn.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay
+        ),
+
+        ("rmsprop", "RMSprop", "RMSProp"): RMSprop(
+            params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum
+        )
     }
 
     optimizer_for_each_spelling = {
@@ -266,9 +274,9 @@ def train(
     """
     
     experiment = Experiment(
-        api_key=os.getenv("COMET_API_KEY"),
-        project_name=os.getenv("COMET_PROJECT_NAME"),
-        workspace=os.getenv("COMET_WORKSPACE"),
+        api_key=settings.comet_api_key,
+        project_name=settings.comet_project_name,
+        workspace=settings.comet_workspace,
         log_code=False
     )
 
@@ -276,32 +284,40 @@ def train(
 
     if not tune_hyperparams:
 
-        if model_name == "base" or model_name == "Base":
+        if model_name in ["base", "Base"]:
 
             model_fn = BaseCNN(num_classes=num_classes)
 
-        if model_name == "dynamic" or model_name == "Dynamic":
+        elif model_name in ["dynamic", "Dynamic"]:
             
-
             # Provide a default configuration
-            default_layer_config = {
-                [
-                    {"type": "conv", "out_channels": 8, "kernel_size": 8, "padding": 1, "pooling": True},
-                    {"type": "conv", "out_channels": 16, "kernel_size": 3, "padding": 1, "pooling": True},
-                    {"type": "fully_connected"}
-                ]
-            }
+            default_layer_config = [
+                {"type": "conv", "out_channels": 8, "kernel_size": 3, "padding": 1, "pooling": True, "stride": 1},
+                {"type": "conv", "out_channels": 16, "kernel_size": 3, "padding": 1, "pooling": True, "stride": 1}
+                
+            ]
 
             model_fn = DynamicCNN(
                 in_channels=3,
                 num_classes=num_classes,
-                layer_config=default_layer_config,
+                layer_configs=default_layer_config,
                 dropout_prob=dropout_prob
+            )
+
+        elif model_name in ["bigger", "Bigger"]:
+
+            model_fn = BiggerCNN(
+                in_channels=3,
+                num_classes=num_classes,
+                tune_hyperparams=tune_hyperparams,
+                trial=None
             )
 
         else:
 
-            raise NotImplementedError("The model name you entered is not among the accepted names.")
+            raise Exception(
+                'Please enter "base" and "dynamic" for the base and dynamic models respectively.'
+            )
 
         criterion = CrossEntropyLoss()
             
@@ -337,15 +353,15 @@ def train(
         )
 
 train(
-    model_name="Dynamic",
+    model_name="bigger",
     batch_size=20,
     learning_rate=1e-4,
     num_epochs=2,
-    dropout_prob=None,
-    optimizer_name=None,  
+    dropout_prob=0.1,
+    optimizer_name="adam",  
     tune_hyperparams=True,
     device="cpu",
     weight_decay=0.01,
-    momentum=None,
+    momentum=0.1,
     save=True
 )

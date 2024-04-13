@@ -10,7 +10,9 @@ from optuna import trial, create_study, Study
 from optuna.visualization import plot_param_importances
 
 from src.feature_pipeline.data_preparation import get_num_classes
-from src.training_pipeline.models import BaseCNN, DynamicCNN
+from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN
+
+from src.setup.config import settings
 from src.setup.paths import TRIALS_DIR
 
 
@@ -107,10 +109,11 @@ class BestTrials(trial.Trial):
         """ Log the optimization tasks with CometML """
 
         experiment = Experiment(
-            api_key=os.getenv("COMET_API_KEY"),
-            project_name=os.getenv("COMET_PROJECT_NAME"),
-            workspace=os.getenv("COMET_WORKSPACE") 
-        )
+            api_key=settings.comet_api_key,
+            project_name=settings.comet_project_name,
+            workspace=settings.comet_workspace,
+            log_code=False
+        )   
 
         for key, value in list(self.metrics_and_trials.items()):
 
@@ -160,48 +163,60 @@ def optimize_hyperparams(
 
         Returns:
             val_metrics: contains a list of floats which are the average values of  
-                         the loss,recall, accuracy, and precision of the trained model 
+                         the loss,recall, accuracy, and precision of the trained model
                          on the validation set.
         """
 
         num_classes = get_num_classes()
-        num_epochs = trial.suggest_int(name="num_epochs", low=5, high=20)
+        num_epochs = trial.suggest_int(name="num_epochs", low=5, high=15)
 
-        if model_name in ("base", "Base"):
+        if model_name in ["base", "Base"]:
 
-            model = BaseCNN(num_classes=num_classes)
+            model_fn = BaseCNN(num_classes=num_classes)
 
-        elif model_name in ("dynamic", "Dynamic") :
+        elif model_name in ["dynamic", "Dynamic"]:
 
             # Choose the number of convolutional, and fully connected layers
-            conv_layers = trial.suggest_int(name="conv_layers", low=1, high=4)
-            fully_connected = trial.suggest_int(name="fully_connected_layers", low=1, high=4)
+            conv_layers = trial.suggest_int(name="num_conv_layers", low=2, high=6)
 
             # For each of these convolutional layers, choose values of the parameters of the model
-            layer_config = []       
+            layer_configs = []       
             for _ in range(conv_layers):
 
-                config = {
+                stride = trial.suggest_int(name="stride", low=1, high=3)
+
+                # "Same" padding is not supported for strided convolutions
+                padding = "same" if stride == 1 else "valid"
+
+                conv_config = {
                     "type": "conv",
-                    "out_channels": trial.suggest_int(name="conv_out_channels", low=16, high=64),
-                    "kernel_size": trial.suggest_int(name="conv_kernel_size", low=3, high=6),
-                    "stride": trial.suggest_int(name="conv_stride", low=1, high=4),
-                    "padding": trial.suggest_categorical(name="padding", choices=["same", "valid"])
+                    "out_channels": trial.suggest_int(name="out_channels", low=16, high=96, step=16),
+                    "kernel_size": 3,
+                    "stride": 1,
+                    "padding": padding
                 }
 
-            for _ in range(fully_connected):
-
-                config = {
-                    "type": "fully_connected", "out_features": num_classes
-                }
-
-            layer_config.append(config)
+                layer_configs.append(conv_config)
             
-            model = DynamicCNN(
+            model_fn = DynamicCNN(
                 in_channels=3, 
                 num_classes=num_classes, 
-                layer_config=layer_config,
+                layer_configs=layer_configs,
                 dropout_prob=trial.suggest_int(name="dropout", low=0.05, high=0.5)
+            )
+
+        elif model_name in ["bigger", "Bigger"]:
+
+            model_fn = BiggerCNN(
+                in_channels=3,
+                num_classes=num_classes,
+                tune_hyperparams=True,
+                trial=trial
+            )
+
+        else:
+            raise Exception(
+                'Please enter "base" and "dynamic" for the base and dynamic models respectively.'
             )
 
         criterion = CrossEntropyLoss()
@@ -219,7 +234,7 @@ def optimize_hyperparams(
             # because Adam does not have a momentum parameter. Upon doing this, optuna complains about 
             # momentum having no value. It's simply easier to call Adam directly here.
             optimizer = Adam(
-                params=model.parameters(), 
+                params=model_fn.parameters(), 
                 lr=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
                 weight_decay=trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True),
             )
@@ -227,7 +242,7 @@ def optimize_hyperparams(
         else: 
 
             optimizer = get_optimizer(
-                model_fn=model,
+                model_fn=model_fn,
                 optimizer_name=optimizer_choice, 
                 learning_rate=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
                 weight_decay=trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True),
@@ -235,7 +250,7 @@ def optimize_hyperparams(
             )
         
         val_metrics = run_training_loop(
-            model_fn=model, 
+            model_fn=model_fn, 
             criterion=criterion,
             optimizer=optimizer,
             num_classes=num_classes,

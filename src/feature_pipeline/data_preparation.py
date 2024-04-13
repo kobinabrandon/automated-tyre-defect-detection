@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFlip, RandomRotation, RandomAutocontrast 
 
+from src.setup.config import settings
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR
 
 
@@ -64,14 +65,18 @@ def make_dataset(path: PosixPath, batch_size: int) -> DataLoader:
             RandomRotation(degrees=45),
             RandomAutocontrast(),
             ToTensor(), 
-            Resize(size=(128,128))
+            Resize(
+                size=(settings.resized_image_width, settings.resized_image_height)
+            )
         ])
 
     if path == VAL_DATA_DIR or path == TEST_DATA_DIR:
 
         transforms = Compose([
             ToTensor(),
-            Resize(size=(128,128))
+            Resize(
+                size=(settings.resized_image_width, settings.resized_image_height)
+            )
         ])
     
 
