@@ -1,27 +1,26 @@
 import os 
 
 from pathlib import PosixPath
-from typing import List, Tuple
 
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFlip, RandomRotation, RandomAutocontrast 
 
-from src.setup.paths import TRAINING_DATA_DIR, VALIDATION_DATA_DIR, TEST_DATA_DIR
+from src.setup.config import settings
+from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR
 
 
-def get_classes(path: str = TRAINING_DATA_DIR) -> List: 
+def get_num_classes(path: str = TRAIN_DATA_DIR) -> int: 
 
     """
-    Each class of mushrooms is in a folder, and this 
-    function will look through the subdirectories of
-    the folder where the training data is kept. It 
-    will then make a list of these subdirectories, 
-    and return said list.
+    Each class of mushrooms is in a folder, and this function 
+    will look through the subdirectories of the folder where 
+    the training data is kept. It will then make a list of 
+    these subdirectories, and return the length of said list.
 
     Returns:
-        List: a list of the names of the classes
-              (the genera of mushrooms)
+        int: the length of the list of classes (the genera 
+              of mushrooms)
     """
 
     classes = []
@@ -30,20 +29,16 @@ def get_classes(path: str = TRAINING_DATA_DIR) -> List:
         for name in sub_dirs:
             classes.append(name)
 
-    return classes
+    return len(classes)
 
 
-def make_dataset(
-    path: PosixPath, 
-    batch_size: int
-) -> DataLoader:
+def make_dataset(path: PosixPath, batch_size: int) -> DataLoader:
 
     """
     Initialise the transforms that will be used for data
-    augmentation of our images. The exact transforms
-    that will be used depend on whether the model is 
-    being trained, validated during training, or 
-    tested after training.
+    augmentation of our images. The exact transforms that will 
+    be used depend on whether the model is being trained, validated 
+    during training, or tested after training.
 
     Torchvision's ImageFolder class expects images to be in 
     directories, one for each class (which is awfully convenient).
@@ -51,11 +46,11 @@ def make_dataset(
     testing data.
 
     Args:
-        path: the location of the folder containing the images
-              This will determine which transforms will be applied
+        path: the location of the folder containing the images. This
+              will determine which transforms will be applied
         
-        batch_size: the size of the batches that the dataset will
-                    be divided into.
+        batch_size: the size of the batches that the dataset will be
+                    divided into.
 
     Returns:
         DataLoader: a Dataloader object which contains the 
@@ -63,21 +58,25 @@ def make_dataset(
     """
 
     # Initialise the image transformations
-    if path == TRAINING_DATA_DIR:
+    if path == TRAIN_DATA_DIR:
 
         transforms = Compose([
             RandomHorizontalFlip(),
             RandomRotation(degrees=45),
             RandomAutocontrast(),
             ToTensor(), 
-            Resize(size=(128,128))
+            Resize(
+                size=(settings.resized_image_width, settings.resized_image_height)
+            )
         ])
 
-    if path == VALIDATION_DATA_DIR or path == TEST_DATA_DIR:
+    if path == VAL_DATA_DIR or path == TEST_DATA_DIR:
 
         transforms = Compose([
             ToTensor(),
-            Resize(size=(128,128))
+            Resize(
+                size=(settings.resized_image_width, settings.resized_image_height)
+            )
         ])
     
 

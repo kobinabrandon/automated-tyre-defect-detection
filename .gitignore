@@ -1,6 +1,7 @@
 /data
 /models
 /.idea
+/.vscode
 
 **/__pycache__
 .env
