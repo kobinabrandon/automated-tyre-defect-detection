@@ -1,6 +1,5 @@
 from comet_ml import Experiment
 
-import os 
 import joblib
 
 from loguru import logger 
@@ -178,6 +177,10 @@ def optimize_hyperparams(
 
             # Choose the number of convolutional, and fully connected layers
             conv_layers = trial.suggest_int(name="num_conv_layers", low=2, high=6)
+            out_channels = trial.suggest_int(name="out_channels", low=16, high=96)
+            dropout_prob = trial.suggest_int(name="dropout", low=0.05, high=0.5)
+
+            prev_out_channels = 16
 
             # For each of these convolutional layers, choose values of the parameters of the model
             layer_configs = []       
@@ -190,19 +193,24 @@ def optimize_hyperparams(
 
                 conv_config = {
                     "type": "conv",
-                    "out_channels": trial.suggest_int(name="out_channels", low=16, high=96, step=16),
+                    "out_channels": prev_out_channels,
                     "kernel_size": 3,
-                    "stride": 1,
+                    "stride": stride,
+                    "pooling": True,
                     "padding": padding
                 }
 
                 layer_configs.append(conv_config)
+
+                # Ensure that the "out_channels" parameter of the next convolutional layer is double
+                # that of the previous layer. This choice is largely arbirtary.
+                prev_out_channels*=2
             
             model_fn = DynamicCNN(
                 in_channels=3, 
                 num_classes=num_classes, 
                 layer_configs=layer_configs,
-                dropout_prob=trial.suggest_int(name="dropout", low=0.05, high=0.5)
+                dropout_prob=dropout_prob
             )
 
         elif model_name in ["bigger", "Bigger"]:

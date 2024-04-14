@@ -353,7 +353,7 @@ def train(
         )
 
 train(
-    model_name="bigger",
+    model_name="dynamic",
     batch_size=20,
     learning_rate=1e-4,
     num_epochs=2,

@@ -1,10 +1,11 @@
-from loguru import logger 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.setup.paths import PARENT_DIR
 
 class Settings(BaseSettings):
 
+    """ Using pydantic to validate environment variables """ 
+ 
     model_config = SettingsConfigDict(
         env_file=PARENT_DIR/".env",
         env_file_encoding="utf-8",
