@@ -1,8 +1,13 @@
+"""
+This module contains some toy models that I built for purposes of practice, as this is my
+first project with Pytorch.
+"""
+
+
 from collections import OrderedDict
 from torch.nn import Module, Conv2d, Dropout2d, Sequential, ELU, MaxPool2d, Linear, Flatten
 
 from optuna import trial
-
 from src.setup.config import settings
 
 
@@ -137,7 +142,7 @@ class DynamicCNN(Module):
         self.classifier = Linear(in_features=self.feature_extractor_output_size, out_features=num_classes)
 
 
-    def _make_layers(self, in_channels, num_classes, layer_configs, dropout_prob) -> list:    
+    def _make_layers(self, in_channels, num_classes, layer_configs, dropout_prob) -> list[OrderedDict]:    
 
         """
         Args:

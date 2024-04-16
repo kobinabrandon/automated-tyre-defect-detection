@@ -10,9 +10,7 @@ from torch.nn import CrossEntropyLoss
 from torch.optim import Adam, SGD, RMSprop
 from torch.optim.optimizer import Optimizer 
 
-from torchmetrics.classification import (
-    MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
-)
+from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
 
 from src.setup.config import settings
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR
@@ -21,6 +19,13 @@ from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN
 
 
 num_classes = get_num_classes()
+
+experiment = Experiment(
+        api_key=settings.comet_api_key,
+        project_name=settings.comet_project_name,
+        workspace=settings.comet_workspace,
+        log_code=False
+    )
 
 
 def get_optimizer(
@@ -154,8 +159,7 @@ def run_training_loop(
             optimizer.zero_grad()
             images, label = batch
 
-            images = images.to(device)
-            label = label.to(device)
+            images, label = images.to(torch.device(device)), labels.to(torch.device(device))
             
             output = model_fn._forward(images)
 
@@ -191,8 +195,7 @@ def run_training_loop(
 
                 images, label = batch
 
-                images = images.to(device)
-                label = label.to(device)
+                images, label = images.to(torch.device(device)), labels.to(torch.device(device))
 
                 output = model_fn._forward(images)
                 val_loss = criterion(output, label).item()
@@ -210,16 +213,33 @@ def run_training_loop(
                 val_precision_total += val_precision
 
             val_loss_avg = val_loss_total / len(val_iterator)
-
             val_recall_avg = val_recall_total / len(val_iterator)
-
             val_accuracy_avg = val_accuracy_total / len(val_iterator)
             val_precision_avg = val_precision_total / len(val_iterator)
             
             logger.success(
-                "Epoch: {}, Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, Average Accuracy: {:.2f}, Average Recall: {:.2f},\
-                Average Precision: {:.2f}".format(epoch, training_loss_avg, val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg)
+                "Epoch: {}, Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, Average Validation Accuracy: {:.2f}, Average Validation Recall: {:.2f},\
+                Average Validation Precision: {:.2f}".format(epoch, training_loss_avg, val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg)
                
+            )
+
+            val_metrics = {
+                "Epoch": epoch,
+                "Average Training Loss": training_loss_avg,
+                "Average Validation_loss": val_loss_avg,
+                "Average Validation Accuracy": val_accuracy_avg,
+                "Average Validation Recall": val_recall_avg,
+                "Average Validation Precision": val_precision_avg
+            }
+
+            with experiment.test():
+                experiment.log_metrics(val_metrics)
+            
+            experiment.log_confusion_matrix(
+                y_true=label,
+                y_predicted=predictions,
+                title="Confusion Matrix: Evaluation",
+                file_name="confusion-matrix.json"
             )
 
     # Save model parameters
@@ -272,13 +292,6 @@ def train(
                           are to be tuned or not. If it is False, a default
                           version of the model will be trained.
     """
-    
-    experiment = Experiment(
-        api_key=settings.comet_api_key,
-        project_name=settings.comet_project_name,
-        workspace=settings.comet_workspace,
-        log_code=False
-    )
 
     logger.info("Setting up neural network")
 
@@ -336,7 +349,7 @@ def train(
             optimizer=chosen_optimizer,
             num_classes=num_classes,
             batch_size=batch_size,
-            save=save
+            save=True
         )
 
     else:
@@ -355,13 +368,13 @@ def train(
 train(
     model_name="dynamic",
     batch_size=20,
-    learning_rate=1e-4,
-    num_epochs=2,
-    dropout_prob=0.1,
-    optimizer_name="adam",  
+    learning_rate=None,
+    num_epochs=20,
+    dropout_prob=None,
+    optimizer_name=None,  
     tune_hyperparams=True,
     device="cpu",
-    weight_decay=0.01,
-    momentum=0.1,
+    weight_decay=None,
+    momentum=None,
     save=True
 )
