@@ -1,5 +1,5 @@
 """
-This module contains some toy models that I built for purposes of practice, as this is my
+This module starts with some toy models that I built for purposes of practice, as this is my
 first project with Pytorch.
 """
 
@@ -17,7 +17,7 @@ class BaseCNN(Module):
     def __init__(self, num_classes: int):
         
         """     
-        Args 
+        Args
             num_classes: the number of genera for our mushroom 
                        classification problem
         """
@@ -37,7 +37,7 @@ class BaseCNN(Module):
 
         self.feature_extractor = Sequential(self.layers)
 
-        feature_extractor_output_size = calculate_feature_extractor_output_size(model_fn=self)
+        feature_extractor_output_size = calculation_output_feature_map_size(model_fn=self)
 
         self.classifier = Linear(
             in_features=feature_extractor_output_size, 
@@ -97,7 +97,7 @@ class BiggerCNN(Module):
 
         self.feature_extractor = Sequential(self.layers)
 
-        self.feature_extractor_output_size = calculate_feature_extractor_output_size(model_fn=self)
+        self.feature_extractor_output_size = calculation_output_feature_map_size(model_fn=self)
 
         self.classifier = Linear(in_features=self.feature_extractor_output_size, out_features=num_classes)    
 
@@ -114,7 +114,7 @@ class DynamicCNN(Module):
     This is an experimental class that allows us to create architecturally varied CNNs. 
     The hope is that this will allow us to play with different model setups to facilitate 
     testing. 
-    
+
     The trouble is that predictably, hyperparameter tuning of objects in this class is
     proving to be difficult for dimensional reasons that I do not yet fully understand.
     If this problem can be solved, I will be able to test a wide range of architectures
@@ -129,7 +129,7 @@ class DynamicCNN(Module):
         dropout_prob: float
     ): 
 
-        super().__init__()
+        super(DynamicCNN, self).__init__()
 
         self.layers = OrderedDict(
             self._make_layers(
@@ -138,7 +138,7 @@ class DynamicCNN(Module):
         )
 
         self.feature_extractor = Sequential(self.layers)
-        self.feature_extractor_output_size = calculate_feature_extractor_output_size(model_fn=self)
+        self.feature_extractor_output_size = calculation_output_feature_map_size(model_fn=self)
         self.classifier = Linear(in_features=self.feature_extractor_output_size, out_features=num_classes)
 
 
@@ -223,13 +223,14 @@ class DynamicCNN(Module):
         )
 
 
-def calculate_feature_extractor_output_size(
+
+def calculation_output_feature_map_size(
     model_fn: BaseCNN|BiggerCNN|DynamicCNN,
     image_resolution: tuple[int] = (settings.resized_image_width,settings.resized_image_height)
     ) -> int:
 
     """
-    We compute the output size of the feature extractor, which is required by the 
+    We compute the size of the output feature map, which is required by the 
     linear layers that we are using as classifiers at the end of each model.
 
     This output size is determined by the dimensions of the input images, the 

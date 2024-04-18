@@ -82,14 +82,6 @@ def get_optimizer(
         raise NotImplementedError("Consider using the Adam, SGD, or RMSprop optimizers")
 
 
-def set_training_device(model_fn: BaseCNN|DynamicCNN):
-
-    """ Use the GPU if available. Otherwise, default to using the CPU. """
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_fn.to(device)
-
-
 def run_training_loop(
     model_fn: BaseCNN|DynamicCNN, 
     criterion: callable,
@@ -140,7 +132,9 @@ def run_training_loop(
     train_iterator = iter(train_loader)
 
     logger.info("Setting training device")
-    device = set_training_device(model_fn=model_fn)
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model_fn.to(device=device)
 
     logger.info("Training the untuned model")
     for epoch in range(num_epochs):
@@ -153,18 +147,17 @@ def run_training_loop(
         # Initialise training loss
         training_loss_total = 0.0
 
-        for batch in tqdm(train_loader):
+        for (images, labels) in tqdm(train_loader):
 
             # Refresh gradients
             optimizer.zero_grad()
-            images, label = batch
 
-            images, label = images.to(torch.device(device)), labels.to(torch.device(device))
+            images, labels = images.to(device), labels.to(device)
             
             output = model_fn._forward(images)
 
             # Calculate the training loss 
-            training_loss = criterion(output, label)
+            training_loss = criterion(output, labels)
 
             # Calculate the gradient of the loss function
             training_loss.backward()
@@ -191,14 +184,12 @@ def run_training_loop(
 
         with torch.no_grad():
             
-            for batch in val_data_loader:
+            for (images, labels) in val_data_loader:
 
-                images, label = batch
-
-                images, label = images.to(torch.device(device)), labels.to(torch.device(device))
+                images, labels = images.to(torch.device(device)), labels.to(torch.device(device))
 
                 output = model_fn._forward(images)
-                val_loss = criterion(output, label).item()
+                val_loss = criterion(output, labels).item()
 
                 val_loss_total += val_loss
 
@@ -218,8 +209,8 @@ def run_training_loop(
             val_precision_avg = val_precision_total / len(val_iterator)
             
             logger.success(
-                "Epoch: {}, Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, Average Validation Accuracy: {:.2f}, Average Validation Recall: {:.2f},\
-                Average Validation Precision: {:.2f}".format(epoch, training_loss_avg, val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg)
+                "Epoch: [{}/{}], Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, Average Validation Accuracy: {:.2f}, Average Validation Recall: {:.2f},\
+                Average Validation Precision: {:.2f}".format(epoch+1, num_epochs, training_loss_avg, val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg)
                
             )
 
@@ -261,7 +252,6 @@ def train(
     dropout_prob: float|None,
     num_epochs: int,
     optimizer_name: str|None,
-    device: str,
     save: bool,
     tune_hyperparams: bool|None = True,
     tuning_trials: int|None = 10
@@ -373,7 +363,6 @@ train(
     dropout_prob=None,
     optimizer_name=None,  
     tune_hyperparams=True,
-    device="cpu",
     weight_decay=None,
     momentum=None,
     save=True
