@@ -1,11 +1,16 @@
 """
-This module starts with some toy models that I built for purposes of practice, as this is my
+This module contains the various models that I have in my attempts to solve 
+this classification problem. They range from simple toy networks to slightly 
+bigger ones, to famous architectures such as ResNet.
+
+I did much of this work to improve my skills with pytorch, as this is my
 first project with Pytorch.
 """
 
 
 from collections import OrderedDict
-from torch.nn import Module, Conv2d, Dropout2d, Sequential, ELU, MaxPool2d, Linear, Flatten
+from torch import Tensor
+from torch.nn import Module, Conv2d, BatchNorm2d, Dropout2d, Sequential, ReLU, MaxPool2d, Linear, Flatten
 
 from optuna import trial
 from src.setup.config import settings
@@ -26,10 +31,10 @@ class BaseCNN(Module):
         self.layers = OrderedDict(
             [
                 ("conv1", Conv2d(in_channels= 3, out_channels=8, kernel_size=3, padding=1)),
-                ("elu1", ELU()),
+                ("relu1", ReLU()),
                 ("pool1", MaxPool2d(kernel_size=2)),
                 ("conv2", Conv2d(in_channels= 8, out_channels=16, kernel_size=3, padding=1)),
-                ("elu2", ELU()),
+                ("relu2", ReLU()),
                 ("pool2", MaxPool2d(kernel_size=2)),
                 ("flatten", Flatten())
             ]
@@ -82,15 +87,15 @@ class BiggerCNN(Module):
                 ("conv1", Conv2d(in_channels= 3, out_channels=32, kernel_size=3, stride=1, padding=1)),
                 ("pool1", MaxPool2d(kernel_size=2)),
                 ("drop1", Dropout2d(p=self.dropout_rate_1)),
-                ("elu1", ELU()),
+                ("relu1", ReLU()),
                 ("conv2", Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)),
                 ("pool2", MaxPool2d(kernel_size=2)),
                 ("drop2", Dropout2d(p=self.dropout_rate_2)),
-                ("elu2", ELU()),
+                ("relu2", ReLU()),
                 ("conv3", Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)),
                 ("pool3", MaxPool2d(kernel_size=2)),
                 ("drop3", Dropout2d(p=self.dropout_rate_3)),
-                ("elu3", ELU()),
+                ("relu3", ReLU()),
                 ("flatten", Flatten())
             ]
         )
@@ -189,7 +194,7 @@ class DynamicCNN(Module):
                 )
 
                 layers.append(
-                    (f"elu{conv_count}", ELU())
+                    (f"ReLU{conv_count}", ReLU())
                 )
                 
                 prev_out_channels = layer_config["out_channels"]
@@ -203,7 +208,7 @@ class DynamicCNN(Module):
                 )
 
                 layers.append(
-                    (f"elu{pool_count}", ELU())
+                    (f"ReLU{pool_count}", ReLU())
                 )
                 
             # Ensures that the penultimate layer is for flattening 
@@ -221,7 +226,6 @@ class DynamicCNN(Module):
         return  self.classifier(
             self.feature_extractor(image)
         )
-
 
 
 def calculation_output_feature_map_size(
@@ -263,3 +267,116 @@ def calculation_output_feature_map_size(
 
     return feature_extractor_output_size
     
+
+class ConvBlock(Module):
+
+    """
+    This class marks the beginning of my attempts to understand and build models that conform to the 
+    ResNet (residual network) architecture.
+
+    ResNet models make use of convolutional layers whose outputs are stabilised using batch normalisation.
+    This occurs so frequently in these models that it seems justified to have a class dedicated to this 
+    combination of layers to reduce code duplication, and improve readability.
+    """
+
+    def __init__(
+        self, 
+        in_channels: int, 
+        out_channels: int, 
+        kernel_size: int, 
+        stride: int, 
+        padding: int
+    ):
+        super.__init__()
+        self.conv = Sequential(
+            Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride),
+            BatchNorm2d(num_features=out_channels)
+        )
+        
+    def _forward(self, x):
+
+        return self.conv(x)
+
+
+class ResidualBlock(Module):
+
+    def __init__(
+        self, 
+        in_channels: int,
+        out_channels: int, 
+        stride=1, 
+        identity_downsample=None
+    ):
+        super().__init__()
+        
+        self.expansion = 4
+        self.elements = Sequential(
+            ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=0),
+            ConvBlock(in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=1),
+            ConvBlock(in_channels=in_channels, out_channels=out_channels*self.expansion, kernel_size=1, stride=1, padding=0),
+            ReLU()
+        )
+
+        self.identity_downsample = identity_downsample
+    
+
+    def _forward(self, x:Tensor) -> Tensor:
+
+        # Copy the input data
+        residual = x
+
+        # Apply the residual block to the input to get the output feature maps
+        x = self.elements(x)
+        
+        if self.downsample is not None:
+            residual = self.identity_downsample(residual)
+
+        # Add the (potentially downsampled) input data to the output feature maps, and return it
+        x += residual
+        return self.relu(output)
+
+
+class ResNet(Module):
+
+    def __init__(
+        self, 
+        block: ResidualBlock, 
+        layers: list[int], 
+        in_channels: int, 
+        num_classes: int
+    ):
+
+        super().__init__()
+
+        self.in_channels = 3
+        self.conv1 = ConvBlock(in_channels=in_channels, out_channels=64, kernel_size=7, stride=2, padding=3)
+        self.relu = ReLU()
+        self.maxpool = MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+    
+    def _make_layer(self, num_residual_blocks, out_channels, stride):
+
+        identity_downsample = None
+        layers = []
+
+        if stride !=1 or self.in_channels != out_channels*4:
+            
+            identity_downsample = ConvBlock(
+                in_channels=self.in_channels, 
+                out_channels=self.out_channels*4, 
+                stride=stride
+            )
+
+        layers.append(
+            ResidualBlock(
+                in_channels=self.in_channels, 
+                out_channels=out_channels, 
+                identity_downsample=identity_downsample, 
+                stride=stride
+            )
+        )
+        
+        self.in_channels = out_channels*4
+
+        for block in range(num_residual_blocks-1):
+
