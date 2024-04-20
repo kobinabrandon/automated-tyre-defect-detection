@@ -80,7 +80,7 @@ class BestTrials(trial.Trial):
 
             if "loss" in item[0]:
             
-                logger.info(f"Trial with lowest {item[0]}:")
+                logger.info(f"Trial with lowest {item[0]}:")s
             
             else: 
                 logger.info(f"Trial with highest {item[0]}:")

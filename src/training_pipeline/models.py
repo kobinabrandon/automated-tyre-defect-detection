@@ -1,7 +1,7 @@
 """
 This module contains the various models that I have in my attempts to solve 
 this classification problem. They range from simple toy networks to slightly 
-bigger ones, to famous architectures such as ResNet.
+bigger ones, to famous architectures such as ResNet. 
 
 I did much of this work to improve my skills with pytorch, as this is my
 first project with Pytorch.
@@ -10,7 +10,7 @@ first project with Pytorch.
 
 from collections import OrderedDict
 from torch import Tensor
-from torch.nn import Module, Conv2d, BatchNorm2d, Dropout2d, Sequential, ReLU, MaxPool2d, Linear, Flatten
+from torch.nn import Module, Conv2d, BatchNorm2d, Dropout2d, Sequential, ReLU, MaxPool2d, Linear, Flatten, ModuleList, AdaptiveAvgPool2d
 
 from optuna import trial
 from src.setup.config import settings
@@ -293,7 +293,7 @@ class ConvBlock(Module):
             BatchNorm2d(num_features=out_channels)
         )
         
-    def _forward(self, x):
+    def _forward(self, x: Tensor) -> Tensor:
 
         return self.conv(x)
 
@@ -305,7 +305,7 @@ class ResidualBlock(Module):
         in_channels: int,
         out_channels: int, 
         stride=1, 
-        identity_downsample=None
+        shortcut_downsample=Sequential[ConvBlock]|None
     ):
         super().__init__()
         
@@ -317,7 +317,7 @@ class ResidualBlock(Module):
             ReLU()
         )
 
-        self.identity_downsample = identity_downsample
+        self.shortcut_downsample = shortcut_downsample
     
 
     def _forward(self, x:Tensor) -> Tensor:
@@ -329,54 +329,148 @@ class ResidualBlock(Module):
         x = self.elements(x)
         
         if self.downsample is not None:
-            residual = self.identity_downsample(residual)
+            residual = self.shortcut_downsample(residual)
 
-        # Add the (potentially downsampled) input data to the output feature maps, and return it
+        # Add the (potentially downsampled) input data to the output feature maps, and return the result
         x += residual
-        return self.relu(output)
+        return self.relu(x)
 
 
 class ResNet(Module):
 
+    """
+    This is a general class that should hopefully allow us to create different 
+    ResNet model arhitectures.
+    
+    Its constructor initialises all the layers of the model, and a function follows
+    which implements the forward pass. 
+
+    Though ResNet models can be imported from Pytorch hub, I wanted to build
+    them myself to improve my skills with pytorch, and learn more about this model
+    architecture.
+    """
+
     def __init__(
         self, 
-        block: ResidualBlock, 
-        layers: list[int], 
+        blocks_per_layer: list[int], 
         in_channels: int, 
-        num_classes: int
+        num_classes: int 
     ):
+
+        """
+        Initialise the various layers that will make up the residual network.
+
+        Args: 
+            layers: a list containing the number of residual blocks in each layer
+
+            in_channels: the number of input channels in the first convolutional layer
+
+            num_classes: the number of genera for our mushroom classification problem
+        """
 
         super().__init__()
 
+        self.layers = ModuleList()
+
         self.in_channels = 3
-        self.conv1 = ConvBlock(in_channels=in_channels, out_channels=64, kernel_size=7, stride=2, padding=3)
-        self.relu = ReLU()
-        self.maxpool = MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+        initial_layers = [
+            ConvBlock(in_channels=in_channels, out_channels=64, kernel_size=7, stride=2, padding=3),
+            MaxPool2d(kernel_size=3, stride=2, padding=1),
+            ReLU()
+        ]
+
+        for layer in initial_layers:
+
+            self.layers.append(layer)
+
+        for index, num_blocks in enumerate(blocks_per_layer):
+
+            stride = 1 if index == 0 else 2
+
+            self.layers.append(
+                self._make_layer(
+                    num_residual_blocks=num_blocks, 
+                    out_channels=64*(2**index), 
+                    stride=stride
+                )
+            )
+            
+        self.avgpool = AdaptiveAvgPool2d(output_size=1)
+
+        blocks_last_layer = len(blocks_per_layer)-1
+        fc_input_features = 64*(2**blocks_last_layer)*4
+
+        self.fully_connected = Linear(
+            in_features=fc_input_features, 
+            out_features=num_classes
+        )
 
     
-    def _make_layer(self, num_residual_blocks, out_channels, stride):
+    def _forward(self, x: Tensor) -> Tensor:
 
-        identity_downsample = None
-        layers = []
+        for layer in self.layers:
+            x = layer(x)
 
+        return x
+
+    
+    def _make_layer(
+        self, 
+        num_residual_blocks: int, 
+        out_channels:int, 
+        stride:int
+        ) -> Sequential[ModuleList]:
+
+        """
+
+        Args:
+
+            num_residual_blocks: the number of residual blocks that make up the layer.
+            
+            out_channels: the number of filters to use for the convolutions.
+
+            stride: the stride to be used for the convolutions when downsampling is required.
+
+        Returns:
+            Sequential[ModuleList]: the initialised layers of the residual network
+        """
+
+        shortcut_downsample = None
+        layers = ModuleList()
+
+        # Conditions under which the inputs and outputs of a residual block will mismatch.
         if stride !=1 or self.in_channels != out_channels*4:
             
-            identity_downsample = ConvBlock(
-                in_channels=self.in_channels, 
-                out_channels=self.out_channels*4, 
-                stride=stride
+            shortcut_downsample = Sequential(
+                ConvBlock(
+                    in_channels=self.in_channels, 
+                    out_channels=out_channels*4, 
+                    stride=stride
+                )
             )
 
         layers.append(
             ResidualBlock(
-                in_channels=self.in_channels, 
-                out_channels=out_channels, 
-                identity_downsample=identity_downsample, 
+                in_channels=self.in_channels,
+                out_channels=out_channels,
+                shortcut_downsample=shortcut_downsample,
                 stride=stride
             )
         )
         
         self.in_channels = out_channels*4
 
-        for block in range(num_residual_blocks-1):
+        for _ in range(num_residual_blocks-1):
+            
+            # Establish the residual blocks that make up the layer
+            layers.append(
+                ResidualBlock(
+                    in_channels=self.in_channels, 
+                    out_channels=out_channels, 
+                    shortcut_downsample=shortcut_downsample
+                )
+            )
 
+        return Sequential(layers)
+    
