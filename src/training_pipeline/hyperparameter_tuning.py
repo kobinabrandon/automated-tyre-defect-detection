@@ -9,7 +9,7 @@ from optuna import trial, create_study, Study
 from optuna.visualization import plot_param_importances
 
 from src.feature_pipeline.data_preparation import get_num_classes
-from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN
+from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
 
 from src.setup.config import settings
 from src.setup.paths import TRIALS_DIR
@@ -80,7 +80,7 @@ class BestTrials(trial.Trial):
 
             if "loss" in item[0]:
             
-                logger.info(f"Trial with lowest {item[0]}:")s
+                logger.info(f"Trial with lowest {item[0]}:")
             
             else: 
                 logger.info(f"Trial with highest {item[0]}:")
@@ -222,13 +222,16 @@ def optimize_hyperparams(
                 trial=trial
             )
 
+        if "resnet" or "Resnet" in model_name:
+            model_fn = get_resnet(model_name=model_name)
+
         else:
             raise Exception(
                 'Please enter "base" and "dynamic" for the base and dynamic models respectively.'
             )
 
         criterion = CrossEntropyLoss()
-            
+
         optimizer_choice = trial.suggest_categorical(
             name="optimizer", 
             choices=["Adam", "SGD", "RMSProp"]
@@ -239,8 +242,9 @@ def optimize_hyperparams(
         if optimizer_choice == "Adam":
             
             # I didn't use get_optimizer() here because I would have to include momentum=None in the arguments
-            # because Adam does not have a momentum parameter. Upon doing this, optuna complains about 
-            # momentum having no value. It's simply easier to call Adam directly here.
+            # because Adam does not have a momentum parameter. Upon doing this, optuna complains about momentum 
+            # having no value. It's simply easier to call Adam directly here.
+            
             optimizer = Adam(
                 params=model_fn.parameters(), 
                 lr=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),

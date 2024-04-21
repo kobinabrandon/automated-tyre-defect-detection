@@ -1,4 +1,5 @@
 from comet_ml import Experiment
+from typing import Union
 
 import torch
 
@@ -15,7 +16,7 @@ from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy,
 from src.setup.config import settings
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR
 from src.feature_pipeline.data_preparation import make_dataset, get_num_classes
-from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN
+from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
 
 
 num_classes = get_num_classes()
@@ -29,7 +30,7 @@ experiment = Experiment(
 
 
 def get_optimizer(
-    model_fn: BaseCNN|DynamicCNN,
+    model_fn: Union[BaseCNN,DynamicCNN,ResNet],
     optimizer_name: str,
     learning_rate: float,
     weight_decay: float|None,
@@ -57,17 +58,9 @@ def get_optimizer(
     """
 
     optimizers_and_likely_spellings = {
-        ("adam", "Adam"): Adam(
-            params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay
-        ),
-
-        ("sgd", "SGD"): SGD(
-            params=model_fn.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay
-        ),
-
-        ("rmsprop", "RMSprop", "RMSProp"): RMSprop(
-            params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum
-        )
+        ("adam", "Adam"): Adam(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay),
+        ("sgd", "SGD"): SGD(params=model_fn.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay),
+        ("rmsprop", "RMSprop", "RMSProp"): RMSprop(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
     }
 
     optimizer_for_each_spelling = {
@@ -75,7 +68,7 @@ def get_optimizer(
     }
 
     if optimizer_name in optimizer_for_each_spelling.keys():
-
+        
         return optimizer_for_each_spelling[optimizer_name]
 
     else:
@@ -83,7 +76,7 @@ def get_optimizer(
 
 
 def run_training_loop(
-    model_fn: BaseCNN|DynamicCNN, 
+    model_fn: Union[BaseCNN,DynamicCNN,ResNet], 
     criterion: callable,
     save: bool,
     optimizer: callable,
@@ -154,7 +147,7 @@ def run_training_loop(
 
             images, labels = images.to(device), labels.to(device)
             
-            output = model_fn._forward(images)
+            output = model_fn.forward(images)
 
             # Calculate the training loss 
             training_loss = criterion(output, labels)
@@ -188,7 +181,7 @@ def run_training_loop(
 
                 images, labels = images.to(torch.device(device)), labels.to(torch.device(device))
 
-                output = model_fn._forward(images)
+                output = model_fn.forward(images)
                 val_loss = criterion(output, labels).item()
 
                 val_loss_total += val_loss
@@ -316,10 +309,12 @@ def train(
                 trial=None
             )
 
-        else:
+        if "resnet" or "Resnet" in model_name:
+            model_fn = get_resnet(model_name=model_name)
 
+        else:
             raise Exception(
-                'Please enter "base" and "dynamic" for the base and dynamic models respectively.'
+                'Please enter "base", "dynamic", or one of the ResNet for the base and dynamic models respectively.'
             )
 
         criterion = CrossEntropyLoss()
@@ -356,7 +351,7 @@ def train(
         )
 
 train(
-    model_name="dynamic",
+    model_name="resnet50",
     batch_size=20,
     learning_rate=None,
     num_epochs=20,

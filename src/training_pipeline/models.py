@@ -9,11 +9,12 @@ first project with Pytorch.
 
 
 from collections import OrderedDict
-from torch import Tensor
+from torch import Tensor, reshape
 from torch.nn import Module, Conv2d, BatchNorm2d, Dropout2d, Sequential, ReLU, MaxPool2d, Linear, Flatten, ModuleList, AdaptiveAvgPool2d
 
 from optuna import trial
 from src.setup.config import settings
+from src.feature_pipeline.data_preparation import get_num_classes
 
 
 class BaseCNN(Module): 
@@ -49,7 +50,7 @@ class BaseCNN(Module):
             out_features=num_classes
         )
 
-    def _forward(self, image):
+    def forward(self, image):
 
         """
         Implement a forward pass, applying the extractor 
@@ -106,7 +107,7 @@ class BiggerCNN(Module):
 
         self.classifier = Linear(in_features=self.feature_extractor_output_size, out_features=num_classes)    
 
-    def _forward(self, image):
+    def forward(self, image):
 
         return self.classifier(
             self.feature_extractor(image)
@@ -221,7 +222,7 @@ class DynamicCNN(Module):
         return layers
 
     
-    def _forward(self, image):
+    def forward(self, image):
 
         return  self.classifier(
             self.feature_extractor(image)
@@ -287,13 +288,13 @@ class ConvBlock(Module):
         stride: int, 
         padding: int
     ):
-        super.__init__()
+        super().__init__()
         self.conv = Sequential(
             Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride),
             BatchNorm2d(num_features=out_channels)
         )
         
-    def _forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor) -> Tensor:
 
         return self.conv(x)
 
@@ -305,7 +306,7 @@ class ResidualBlock(Module):
         in_channels: int,
         out_channels: int, 
         stride=1, 
-        shortcut_downsample=Sequential[ConvBlock]|None
+        shortcut_downsample=Sequential|None
     ):
         super().__init__()
         
@@ -320,7 +321,7 @@ class ResidualBlock(Module):
         self.shortcut_downsample = shortcut_downsample
     
 
-    def _forward(self, x:Tensor) -> Tensor:
+    def forward(self, x:Tensor) -> Tensor:
 
         # Copy the input data
         residual = x
@@ -339,8 +340,8 @@ class ResidualBlock(Module):
 class ResNet(Module):
 
     """
-    This is a general class that should hopefully allow us to create different 
-    ResNet model arhitectures.
+    This is a general class that should allow us to create different ResNet 
+    model arhitectures.
     
     Its constructor initialises all the layers of the model, and a function follows
     which implements the forward pass. 
@@ -369,10 +370,8 @@ class ResNet(Module):
         """
 
         super().__init__()
-
-        self.layers = ModuleList()
-
         self.in_channels = 3
+        self.layers = []
 
         initial_layers = [
             ConvBlock(in_channels=in_channels, out_channels=64, kernel_size=7, stride=2, padding=3),
@@ -381,46 +380,57 @@ class ResNet(Module):
         ]
 
         for layer in initial_layers:
-
             self.layers.append(layer)
 
         for index, num_blocks in enumerate(blocks_per_layer):
 
             stride = 1 if index == 0 else 2
 
-            self.layers.append(
+            self.layers.extend(
                 self._make_layer(
                     num_residual_blocks=num_blocks, 
                     out_channels=64*(2**index), 
                     stride=stride
                 )
             )
-            
-        self.avgpool = AdaptiveAvgPool2d(output_size=1)
+        
+        self.layers.append(
+            AdaptiveAvgPool2d(output_size=1)
+        )
 
         blocks_last_layer = len(blocks_per_layer)-1
         fc_input_features = 64*(2**blocks_last_layer)*4
 
-        self.fully_connected = Linear(
-            in_features=fc_input_features, 
-            out_features=num_classes
-        )
+        self.fully_connected = Linear(in_features=fc_input_features, out_features=num_classes)
 
     
-    def _forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor) -> Tensor:
+
+        """
+        Perform the forward pass for each layer in the layers object.
+        Then run the output of that into a fully connected layer.
+
+        Returns:
+            x: a tensor containing the output of the ResNet model. 
+        """
 
         for layer in self.layers:
-            x = layer(x)
+            x = layer.forward(x)
 
-        return x
+        return self.fully_connected.forward(
+            reshape(
+                input=x, 
+                shape=(x.shape[0], -1)
+            )
+        )
 
     
     def _make_layer(
         self, 
         num_residual_blocks: int, 
         out_channels:int, 
-        stride:int
-        ) -> Sequential[ModuleList]:
+        stride:int  
+        ) -> list:
 
         """
 
@@ -437,7 +447,7 @@ class ResNet(Module):
         """
 
         shortcut_downsample = None
-        layers = ModuleList()
+        layers = []
 
         # Conditions under which the inputs and outputs of a residual block will mismatch.
         if stride !=1 or self.in_channels != out_channels*4:
@@ -446,6 +456,8 @@ class ResNet(Module):
                 ConvBlock(
                     in_channels=self.in_channels, 
                     out_channels=out_channels*4, 
+                    kernel_size=1,
+                    padding=1,
                     stride=stride
                 )
             )
@@ -472,5 +484,29 @@ class ResNet(Module):
                 )
             )
 
-        return Sequential(layers)
+        return layers
+
+
+def get_resnet(
+    model_name: str, 
+    num_classes: int = get_num_classes()
+    ) -> ResNet:
+
+    """
+    Accept the name of a particular ResNet architecture, and return it.
+
+    Returns:
+        ResNet: the model with the requested ResNet architecture.
+    """
+
+    if model_name in ["resnet50", "Resnet50" "ResNet50"]:
+        model_fn = ResNet(in_channels=3, blocks_per_layer=[3,4,6,3], num_classes=num_classes)
+
+    elif model_name in ["resnet101", "Resnet101" "ResNet101"]:
+        model_fn = ResNet(in_channels=3, blocks_per_layer=[3,4,24,3], num_classes=num_classes)
+
+    elif model_name in ["resnet152", "Resnet152", "ResNet152"]:
+        model_fn = ResNet(in_channels=3, blocks_per_layer=[3,8,36,3], num_classes=num_classes)
+
+    return model_fn
     
