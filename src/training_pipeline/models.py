@@ -295,8 +295,7 @@ class ConvBlock(Module):
         )
         
     def forward(self, x: Tensor) -> Tensor:
-
-        return self.conv(x)
+        return self.conv.forward(x)
 
 
 class ResidualBlock(Module):
@@ -314,7 +313,7 @@ class ResidualBlock(Module):
         self.elements = Sequential(
             ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=0),
             ConvBlock(in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=1),
-            ConvBlock(in_channels=in_channels, out_channels=out_channels*self.expansion, kernel_size=1, stride=1, padding=0),
+            ConvBlock(in_channels=out_channels, out_channels=out_channels*self.expansion, kernel_size=1, stride=1, padding=0),
             ReLU()
         )
 
@@ -329,7 +328,7 @@ class ResidualBlock(Module):
         # Apply the residual block to the input to get the output feature maps
         x = self.elements(x)
         
-        if self.downsample is not None:
+        if self.shortcut_downsample is not None:
             residual = self.shortcut_downsample(residual)
 
         # Add the (potentially downsampled) input data to the output feature maps, and return the result
@@ -374,7 +373,7 @@ class ResNet(Module):
         self.layers = []
 
         initial_layers = [
-            ConvBlock(in_channels=in_channels, out_channels=64, kernel_size=7, stride=2, padding=3),
+            ConvBlock(in_channels=self.in_channels, out_channels=64, kernel_size=7, stride=2, padding=3),
             MaxPool2d(kernel_size=3, stride=2, padding=1),
             ReLU()
         ]
@@ -435,7 +434,6 @@ class ResNet(Module):
         """
 
         Args:
-
             num_residual_blocks: the number of residual blocks that make up the layer.
             
             out_channels: the number of filters to use for the convolutions.
@@ -454,7 +452,7 @@ class ResNet(Module):
             
             shortcut_downsample = Sequential(
                 ConvBlock(
-                    in_channels=self.in_channels, 
+                    in_channels=3, 
                     out_channels=out_channels*4, 
                     kernel_size=1,
                     padding=1,
@@ -472,13 +470,13 @@ class ResNet(Module):
         )
         
         self.in_channels = out_channels*4
-
+ 
         for _ in range(num_residual_blocks-1):
             
             # Establish the residual blocks that make up the layer
             layers.append(
                 ResidualBlock(
-                    in_channels=self.in_channels, 
+                    in_channels=3, 
                     out_channels=out_channels, 
                     shortcut_downsample=shortcut_downsample
                 )
