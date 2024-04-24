@@ -7,12 +7,12 @@ I did much of this work to improve my skills with pytorch, as this is my
 first project with Pytorch.
 """
 
-
+import torch 
 from collections import OrderedDict
-from torch import Tensor, reshape
 from torch.nn import Module, Conv2d, BatchNorm2d, Dropout2d, Sequential, ReLU, MaxPool2d, Linear, Flatten, ModuleList, AdaptiveAvgPool2d
 
 from optuna import trial
+from loguru import logger
 from src.setup.config import settings
 from src.feature_pipeline.data_preparation import get_num_classes
 
@@ -292,9 +292,10 @@ class ConvBlock(Module):
         self.conv = Sequential(
             Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride),
             BatchNorm2d(num_features=out_channels)
+            
         )
         
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.conv.forward(x)
 
 
@@ -310,7 +311,7 @@ class ResidualBlock(Module):
         super().__init__()
         
         self.expansion = 4
-        self.elements = Sequential(
+        self.block_elements = Sequential(
             ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=0),
             ConvBlock(in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=1),
             ConvBlock(in_channels=out_channels, out_channels=out_channels*self.expansion, kernel_size=1, stride=1, padding=0),
@@ -318,22 +319,60 @@ class ResidualBlock(Module):
         )
 
         self.shortcut_downsample = shortcut_downsample
+        self.relu = ReLU()
+
+        # A dummy tensor 
+        self.residual = torch.empty(0,0)
     
 
-    def forward(self, x:Tensor) -> Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
 
-        # Copy the input data
-        residual = x
+        # Store the input data to use it later for the shortcut conection
+        self.residual = x
 
         # Apply the residual block to the input to get the output feature maps
-        x = self.elements(x)
+        x = self.block_elements(x)
+        
+        # Check for dimensional discrepancies
+        self._check_spatial_dimensions(before_downsampling=True, x=x)
         
         if self.shortcut_downsample is not None:
-            residual = self.shortcut_downsample(residual)
+            self.residual = self.shortcut_downsample(self.residual)
+            self._check_spatial_dimensions(before_downsampling=False, x=x)
+        else: 
+            raise logger.warning("No need for downsampling")
+
+        self._check_num_channels(x=x, residual=self.residual)
 
         # Add the (potentially downsampled) input data to the output feature maps, and return the result
-        x += residual
+        x += self.residual
         return self.relu(x)
+
+
+    def _check_spatial_dimensions(self, x: torch.Tensor, before_downsampling: bool):
+
+        match before_downsampling:
+            case True:
+                if x.shape[2:] != self.residual.shape[2:]:
+                    logger.error("The dimensions of the input tensor and the residual before downsampling are incompatible")
+                else:
+                    logger.success("No dimensional discrepancies between the input tensor and the residual before downsampling")
+
+            case False:
+                if x.shape[2:] != self.residual.shape[2:]:
+                    logger.error("The dimensions of the input tensor and the residual after downsampling are incompatible")
+                else: 
+                    logger.error("No issue with dimensions after downsampling")
+
+
+    def _check_num_channels(self, x: torch.Tensor, residual: torch.Tensor):
+
+        if x.shape[1] != residual.shape[1]:
+            logger.error("Number of input channels of x and the residual do not match")
+
+        else:
+            logger.success("Input channels of x and the residual match")
+
 
 
 class ResNet(Module):
@@ -369,11 +408,11 @@ class ResNet(Module):
         """
 
         super().__init__()
-        self.in_channels = 3
+        self.in_channels = 64
         self.layers = []
 
         initial_layers = [
-            ConvBlock(in_channels=self.in_channels, out_channels=64, kernel_size=7, stride=2, padding=3),
+            ConvBlock(in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3),
             MaxPool2d(kernel_size=3, stride=2, padding=1),
             ReLU()
         ]
@@ -401,9 +440,9 @@ class ResNet(Module):
         fc_input_features = 64*(2**blocks_last_layer)*4
 
         self.fully_connected = Linear(in_features=fc_input_features, out_features=num_classes)
-
     
-    def forward(self, x: Tensor) -> Tensor:
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
 
         """
         Perform the forward pass for each layer in the layers object.
@@ -417,7 +456,7 @@ class ResNet(Module):
             x = layer.forward(x)
 
         return self.fully_connected.forward(
-            reshape(
+            torch.reshape(
                 input=x, 
                 shape=(x.shape[0], -1)
             )
@@ -448,14 +487,14 @@ class ResNet(Module):
         layers = []
 
         # Conditions under which the inputs and outputs of a residual block will mismatch.
-        if stride !=1 or self.in_channels != out_channels*4:
+        if stride > 1 or self.in_channels != out_channels*4:
             
             shortcut_downsample = Sequential(
                 ConvBlock(
-                    in_channels=3, 
+                    in_channels=self.in_channels, 
                     out_channels=out_channels*4, 
                     kernel_size=1,
-                    padding=1,
+                    padding=0,
                     stride=stride
                 )
             )
@@ -476,7 +515,7 @@ class ResNet(Module):
             # Establish the residual blocks that make up the layer
             layers.append(
                 ResidualBlock(
-                    in_channels=3, 
+                    in_channels=self.in_channels, 
                     out_channels=out_channels, 
                     shortcut_downsample=shortcut_downsample
                 )
@@ -492,19 +531,25 @@ def get_resnet(
 
     """
     Accept the name of a particular ResNet architecture, and return it.
+    The accepted architectures are ResNet50, ResNet101, and ResNet152. 
 
     Returns:
-        ResNet: the model with the requested ResNet architecture.
+        model_fn: the model with the requested ResNet architecture.
     """
 
-    if model_name in ["resnet50", "Resnet50" "ResNet50"]:
+    if model_name in ["resnet50", "Resnet50", "ResNet50"]:
         model_fn = ResNet(in_channels=3, blocks_per_layer=[3,4,6,3], num_classes=num_classes)
 
-    elif model_name in ["resnet101", "Resnet101" "ResNet101"]:
+    elif model_name in ["resnet101", "Resnet101", "ResNet101"]:
         model_fn = ResNet(in_channels=3, blocks_per_layer=[3,4,24,3], num_classes=num_classes)
 
     elif model_name in ["resnet152", "Resnet152", "ResNet152"]:
         model_fn = ResNet(in_channels=3, blocks_per_layer=[3,8,36,3], num_classes=num_classes)
+
+    else:
+        raise NotImplementedError(
+            "This model is not among the accepted ResNet architectures. Please name resnet50, resnet101, or resnet152."
+        )
 
     return model_fn
     

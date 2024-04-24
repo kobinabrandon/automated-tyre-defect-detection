@@ -146,7 +146,6 @@ def run_training_loop(
             optimizer.zero_grad()
 
             images, labels = images.to(device), labels.to(device)
-            
             output = model_fn.forward(images)
 
             # Calculate the training loss 
