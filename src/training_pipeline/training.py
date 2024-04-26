@@ -36,7 +36,6 @@ def get_optimizer(
     weight_decay: float|None,
     momentum: float|None
     ) -> Optimizer:
-
     """
     The function returns the required optimizer function, based on the entered
     specifications.
@@ -56,7 +55,6 @@ def get_optimizer(
     Returns:
         Optimizer: the optimizer that will be returned.
     """
-
     optimizers_and_likely_spellings = {
         ("adam", "Adam"): Adam(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay),
         ("sgd", "SGD"): SGD(params=model_fn.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay),
@@ -71,6 +69,10 @@ def get_optimizer(
         
         return optimizer_for_each_spelling[optimizer_name]
 
+    # Choose Adam by default
+    elif optimizer_name is None:
+        return optimizer_for_each_spelling["adam"]
+
     else:
         raise NotImplementedError("Consider using the Adam, SGD, or RMSprop optimizers")
 
@@ -84,7 +86,6 @@ def run_training_loop(
     num_classes: int,
     batch_size: int
     ) -> tuple[float, float, float, float]:
-
     """
     Initialise the multi-class precision, recall, and accuracy metrics.
     Then load the training data and set the training device. Train the 
@@ -94,18 +95,15 @@ def run_training_loop(
 
     Args:
         model_fn: the model object that is to be trained
-
         criterion: the loss function to be used 
-        
         save: whether or not the model is to be saved
 
         optimizer: the optimizer that we will use to seek the global
                 minimum of the loss function
                    
-
         num_epochs: the number of epochs that the model should be
                     trained for.
-
+s
         num_classes: the number of classes (genera) the mushrooms
                      should be classified into. 
 
@@ -114,7 +112,6 @@ def run_training_loop(
                      of the loss, recall, accuracy, and precision
                      of the trained model on the validation set.             
     """ 
-
     # Prepare metrics
     precision = MulticlassPrecision(num_classes=num_classes, average="macro")
     recall = MulticlassRecall(num_classes=num_classes, average="macro")
@@ -238,7 +235,7 @@ def run_training_loop(
 def train(
     model_name: str,
     batch_size: int,
-    learning_rate: int,
+    learning_rate: float,
     weight_decay: float|None,
     momentum: float|None,
     dropout_prob: float|None,
@@ -308,12 +305,12 @@ def train(
                 trial=None
             )
 
-        if "resnet" or "Resnet" in model_name:
+        elif "resnet" or "Resnet" or "ResNet" in model_name:
             model_fn = get_resnet(model_name=model_name)
 
         else:
             raise Exception(
-                'Please enter "base", "dynamic", or one of the ResNet for the base and dynamic models respectively.'
+                'Please enter "base", "dynamic"(for the base and dynamic models respectively), or the name of a ResNet.'
             )
 
         criterion = CrossEntropyLoss()

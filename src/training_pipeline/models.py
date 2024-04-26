@@ -1,15 +1,15 @@
 """
-This module contains the various models that I have in my attempts to solve 
-this classification problem. They range from simple toy networks to slightly 
-bigger ones, to famous architectures such as ResNet. 
+This module contains the various models that I have built for this 
+classification problem. They range from simple toy networks to models
+based on famous architectures such as ResNet. 
 
-I did much of this work to improve my skills with pytorch, as this is my
-first project with Pytorch.
+I did much of this work to improve my skills with Pytorch, as this is my
+first project with library (I used TensorFlow in the past).
 """
 
 import torch 
 from collections import OrderedDict
-from torch.nn import Module, Conv2d, BatchNorm2d, Dropout2d, Sequential, ReLU, MaxPool2d, Linear, Flatten, ModuleList, AdaptiveAvgPool2d
+from torch.nn import Module, Conv2d, BatchNorm2d, Dropout2d, Sequential, ReLU, MaxPool2d, Linear, Flatten, AdaptiveAvgPool2d
 
 from optuna import trial
 from loguru import logger
@@ -19,7 +19,11 @@ from src.feature_pipeline.data_preparation import get_num_classes
 
 class BaseCNN(Module): 
 
-    """ Create a relatively basic convolutional neural network """
+    """ 
+    Create a basic convolutional neural network. 
+    It performs horrendously, but it is the first
+    working CNN that I built.
+    """
     def __init__(self, num_classes: int):
         
         """     
@@ -42,7 +46,6 @@ class BaseCNN(Module):
         )
 
         self.feature_extractor = Sequential(self.layers)
-
         feature_extractor_output_size = calculation_output_feature_map_size(model_fn=self)
 
         self.classifier = Linear(
@@ -66,19 +69,13 @@ class BiggerCNN(Module):
 
     """
     A slightly bigger network than the base model which
-    exists only for purposes of comparison.
+    exists only for purposes of comparison. It also performs
+    terribly.
     """
 
-    def __init__(
-        self,
-        in_channels: int,
-        num_classes: int,
-        tune_hyperparams: bool,
-        trial: trial.Trial|None
-    ):
+    def __init__(self, in_channels: int, num_classes: int, tune_hyperparams: bool, trial: trial.Trial|None):
 
         super().__init__()
-        
         self.dropout_rate_1 = trial.suggest_float(name="first_dropout_rate", low=0, high=0.5, step=0.1) if tune_hyperparams else 0.2
         self.dropout_rate_2 = trial.suggest_float(name="second_dropout_rate", low=0, high=0.5, step=0.1) if tune_hyperparams else 0.2
         self.dropout_rate_3 = trial.suggest_float(name="third_dropout_rate", low=0, high=0.5, step=0.1) if tune_hyperparams else 0.2
@@ -153,7 +150,6 @@ class DynamicCNN(Module):
         """
         Args:
             in_channels: number of input channels for a given convolutional layer
-
             num_classes: the number of genera for our mushroom classification problem
 
             layer configs: a list of dictionaries that defines the whole network. Each
@@ -233,7 +229,6 @@ def calculation_output_feature_map_size(
     model_fn: BaseCNN|BiggerCNN|DynamicCNN,
     image_resolution: tuple[int] = (settings.resized_image_width,settings.resized_image_height)
     ) -> int:
-
     """
     We compute the size of the output feature map, which is required by the 
     linear layers that we are using as classifiers at the end of each model.
@@ -254,11 +249,9 @@ def calculation_output_feature_map_size(
     for layer in layers:
             
         if isinstance(layer, Conv2d):
-
             output_feature_maps = layer.out_channels
 
         if isinstance(layer, MaxPool2d):
-
             pooling_layer_count+=1
 
     reduced_width = image_resolution[0]/(2**pooling_layer_count)
@@ -270,29 +263,20 @@ def calculation_output_feature_map_size(
     
 
 class ConvBlock(Module):
-
     """
-    This class marks the beginning of my attempts to understand and build models that conform to the 
-    ResNet (residual network) architecture.
+    This class marks the beginning of my attempts to understand and build 
+    models that conform to the ResNet (residual network) architecture.
 
-    ResNet models make use of convolutional layers whose outputs are stabilised using batch normalisation.
-    This occurs so frequently in these models that it seems justified to have a class dedicated to this 
-    combination of layers to reduce code duplication, and improve readability.
+    ResNet models make use of convolutional layers whose outputs are stabilised 
+    using batch normalisation. This occurs so frequently in these models that it 
+    seems justified to have a class dedicated to this combination of layers to 
+    reduce code duplication, and improve readability.
     """
-
-    def __init__(
-        self, 
-        in_channels: int, 
-        out_channels: int, 
-        kernel_size: int, 
-        stride: int, 
-        padding: int
-    ):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int, padding: int):
         super().__init__()
         self.conv = Sequential(
-            Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride),
+            Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding),
             BatchNorm2d(num_features=out_channels)
-            
         )
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -300,83 +284,94 @@ class ConvBlock(Module):
 
 
 class ResidualBlock(Module):
+    """
+    Residual blocks are the building (ahem) blocks of residual networks.
+    They consist of ConvBlocks, and a shortcut (alternatively skip) 
+    connection which takes the input tensor and adds it to the output of
+    the block's forward pass. 
 
-    def __init__(
-        self, 
-        in_channels: int,
-        out_channels: int, 
-        stride=1, 
-        shortcut_downsample=Sequential|None
-    ):
+    This is the main distinguishing feature of residual networks, as the
+    network maintains a "memory" of the input data to prevent performance
+    from degrading as the network gets deeper.
+    """
+    def __init__(self, in_channels: int, out_channels: int, stride=1, shortcut_downsample=Sequential|None):
         super().__init__()
-        
         self.expansion = 4
-        self.block_elements = Sequential(
-            ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=0),
-            ConvBlock(in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=1),
-            ConvBlock(in_channels=out_channels, out_channels=out_channels*self.expansion, kernel_size=1, stride=1, padding=0),
-            ReLU()
-        )
-
-        self.shortcut_downsample = shortcut_downsample
         self.relu = ReLU()
+        self.residual = None
+        self.shortcut_downsample = shortcut_downsample
 
-        # A dummy tensor 
-        self.residual = torch.empty(0,0)
-    
+        self.conv1 = ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0)
+        self.conv2 = ConvBlock(in_channels=out_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=1)
+        self.conv3 = ConvBlock(in_channels=out_channels, out_channels=out_channels*self.expansion, kernel_size=3, stride=1, padding=0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Copy the input data as it comes in, and perform a forward pass
 
+        Returns:
+            torch.Tensor: 
+        """
         # Store the input data to use it later for the shortcut conection
-        self.residual = x
+        self.residual = x.clone()
+
+        logger.info(F"Input shape {x.shape}")
 
         # Apply the residual block to the input to get the output feature maps
-        x = self.block_elements(x)
+        x = self.conv3(
+                self.conv2(
+                    self.conv1(x)
+                )
+            )
         
+        logger.info(F"Output shape {x.shape}")
+
         # Check for dimensional discrepancies
-        self._check_spatial_dimensions(before_downsampling=True, x=x)
+        self._check_spatial_dimensions(before_downsampling=True, input_tensor=x)
         
+        # Perform downsampling if necessary and check for dimensional discrepancies
         if self.shortcut_downsample is not None:
             self.residual = self.shortcut_downsample(self.residual)
-            self._check_spatial_dimensions(before_downsampling=False, x=x)
+            self._check_spatial_dimensions(before_downsampling=False, input_tensor=x)
         else: 
-            raise logger.warning("No need for downsampling")
+            logger.info("No need for downsampling")
 
-        self._check_num_channels(x=x, residual=self.residual)
+        # Check for an equal number of channels
+        self._check_num_channels(input_tensor=x)
+
+        logger.info(f"Residual shape {self.residual.shape}")
 
         # Add the (potentially downsampled) input data to the output feature maps, and return the result
         x += self.residual
         return self.relu(x)
 
-
-    def _check_spatial_dimensions(self, x: torch.Tensor, before_downsampling: bool):
-
-        match before_downsampling:
-            case True:
-                if x.shape[2:] != self.residual.shape[2:]:
-                    logger.error("The dimensions of the input tensor and the residual before downsampling are incompatible")
+    def _check_spatial_dimensions(self, input_tensor: torch.Tensor, before_downsampling: bool):
+        """
+        Check whether the input tensor (dubbed x) and the residual have equal 
+        spatial dimensions, both before and after downsampling, and produces 
+        a corresponding log message.
+        """
+        for case, status in {"Before": True, "After": False}.items():
+            if before_downsampling == status:
+                if input_tensor.shape[2:] != self.residual.shape[2:]:
+                    logger.error(f"{case} downsampling: Dimensions of x and the residual are incompatible")
                 else:
-                    logger.success("No dimensional discrepancies between the input tensor and the residual before downsampling")
+                    logger.success(f"{case} downsampling: No dimensional discrepancies between x and the residual")
+                
 
-            case False:
-                if x.shape[2:] != self.residual.shape[2:]:
-                    logger.error("The dimensions of the input tensor and the residual after downsampling are incompatible")
-                else: 
-                    logger.error("No issue with dimensions after downsampling")
-
-
-    def _check_num_channels(self, x: torch.Tensor, residual: torch.Tensor):
-
-        if x.shape[1] != residual.shape[1]:
-            logger.error("Number of input channels of x and the residual do not match")
-
+    def _check_num_channels(self, input_tensor: torch.Tensor):
+        """
+        Check whether the input tensor and the residual have an equal number of 
+        channels, both before and after downsampling, and produces a corresponding 
+        log message.
+        """
+        if input_tensor.shape[1] != self.residual.shape[1]:
+            logger.error("The number of channels of x and the residual do not match")
         else:
-            logger.success("Input channels of x and the residual match")
-
+            logger.success("The number of channels of x and the residual match")
 
 
 class ResNet(Module):
-
     """
     This is a general class that should allow us to create different ResNet 
     model arhitectures.
@@ -388,46 +383,34 @@ class ResNet(Module):
     them myself to improve my skills with pytorch, and learn more about this model
     architecture.
     """
-
-    def __init__(
-        self, 
-        blocks_per_layer: list[int], 
-        in_channels: int, 
-        num_classes: int 
-    ):
-
+    def __init__(self, blocks_per_layer: list[int], in_channels: int, num_classes: int):
         """
         Initialise the various layers that will make up the residual network.
 
         Args: 
             layers: a list containing the number of residual blocks in each layer
-
             in_channels: the number of input channels in the first convolutional layer
-
             num_classes: the number of genera for our mushroom classification problem
         """
-
         super().__init__()
         self.in_channels = 64
+        self.expansion=4
         self.layers = []
 
-        initial_layers = [
+        self.initial_layers = Sequential(
             ConvBlock(in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3),
-            MaxPool2d(kernel_size=3, stride=2, padding=1),
-            ReLU()
-        ]
-
-        for layer in initial_layers:
-            self.layers.append(layer)
+            MaxPool2d(kernel_size=3, stride=2, padding=1)
+        )
+    
+        self.layers.append(self.initial_layers)
 
         for index, num_blocks in enumerate(blocks_per_layer):
-
             stride = 1 if index == 0 else 2
 
             self.layers.extend(
                 self._make_layer(
                     num_residual_blocks=num_blocks, 
-                    out_channels=64*(2**index), 
+                    out_channels=16*(2**index), 
                     stride=stride
                 )
             )
@@ -440,10 +423,8 @@ class ResNet(Module):
         fc_input_features = 64*(2**blocks_last_layer)*4
 
         self.fully_connected = Linear(in_features=fc_input_features, out_features=num_classes)
-    
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-
         """
         Perform the forward pass for each layer in the layers object.
         Then run the output of that into a fully connected layer.
@@ -453,50 +434,35 @@ class ResNet(Module):
         """
 
         for layer in self.layers:
-            x = layer.forward(x)
+            x = layer(x)
 
-        return self.fully_connected.forward(
-            torch.reshape(
-                input=x, 
-                shape=(x.shape[0], -1)
-            )
-        )
+        return self.fully_connected.forward(x)
 
-    
     def _make_layer(
         self, 
         num_residual_blocks: int, 
         out_channels:int, 
         stride:int  
         ) -> list:
-
         """
+        Setup downsampling convolutional block if necessary, and add further residual 
+        blocks as required by the specific ResNet architecture being built. 
 
         Args:
             num_residual_blocks: the number of residual blocks that make up the layer.
-            
             out_channels: the number of filters to use for the convolutions.
-
             stride: the stride to be used for the convolutions when downsampling is required.
 
         Returns:
-            Sequential[ModuleList]: the initialised layers of the residual network
+            list: the initialised layers of the residual network
         """
-
         shortcut_downsample = None
         layers = []
 
         # Conditions under which the inputs and outputs of a residual block will mismatch.
-        if stride > 1 or self.in_channels != out_channels*4:
-            
-            shortcut_downsample = Sequential(
-                ConvBlock(
-                    in_channels=self.in_channels, 
-                    out_channels=out_channels*4, 
-                    kernel_size=1,
-                    padding=0,
-                    stride=stride
-                )
+        if stride > 1 or self.in_channels != out_channels*self.expansion:
+            shortcut_downsample = ConvBlock(
+                in_channels=self.in_channels, out_channels=out_channels*self.expansion, kernel_size=1, padding=0, stride=stride
             )
 
         layers.append(
@@ -508,9 +474,9 @@ class ResNet(Module):
             )
         )
         
-        self.in_channels = out_channels*4
+        self.in_channels = out_channels*self.expansion
  
-        for _ in range(num_residual_blocks-1):
+        for _ in range(num_residual_blocks):
             
             # Establish the residual blocks that make up the layer
             layers.append(
@@ -528,7 +494,6 @@ def get_resnet(
     model_name: str, 
     num_classes: int = get_num_classes()
     ) -> ResNet:
-
     """
     Accept the name of a particular ResNet architecture, and return it.
     The accepted architectures are ResNet50, ResNet101, and ResNet152. 
@@ -536,7 +501,6 @@ def get_resnet(
     Returns:
         model_fn: the model with the requested ResNet architecture.
     """
-
     if model_name in ["resnet50", "Resnet50", "ResNet50"]:
         model_fn = ResNet(in_channels=3, blocks_per_layer=[3,4,6,3], num_classes=num_classes)
 
