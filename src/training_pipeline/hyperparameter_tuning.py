@@ -265,7 +265,6 @@ def optimize_hyperparams(
             model_fn=model_fn, 
             criterion=criterion,
             optimizer=optimizer,
-            num_classes=num_classes,
             num_epochs=num_epochs,
             batch_size=batch_size,
             save=True

@@ -2,15 +2,12 @@ from comet_ml import Experiment
 from typing import Union
 
 import torch
-
-from loguru import logger 
-from tqdm import tqdm 
-from argparse import ArgumentParser
+from loguru import logger
+from tqdm import tqdm
 
 from torch.nn import CrossEntropyLoss
 from torch.optim import Adam, SGD, RMSprop
-from torch.optim.optimizer import Optimizer 
-
+from torch.optim.optimizer import Optimizer
 from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
 
 from src.setup.config import settings
@@ -18,24 +15,21 @@ from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR
 from src.feature_pipeline.data_preparation import make_dataset, get_num_classes
 from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
 
-
-num_classes = get_num_classes()
-
 experiment = Experiment(
-        api_key=settings.comet_api_key,
-        project_name=settings.comet_project_name,
-        workspace=settings.comet_workspace,
-        log_code=False
-    )
+    api_key=settings.comet_api_key,
+    project_name=settings.comet_project_name,
+    workspace=settings.comet_workspace,
+    log_code=False
+)
 
 
 def get_optimizer(
-    model_fn: Union[BaseCNN,DynamicCNN,ResNet],
-    optimizer_name: str,
-    learning_rate: float,
-    weight_decay: float|None,
-    momentum: float|None
-    ) -> Optimizer:
+        model_fn: Union[BaseCNN, DynamicCNN, ResNet],
+        optimizer_name: str,
+        learning_rate: float,
+        weight_decay: float | None,
+        momentum: float | None
+) -> Optimizer:
     """
     The function returns the required optimizer function, based on the entered
     specifications.
@@ -43,13 +37,17 @@ def get_optimizer(
     Args: 
         model_fn: the model that is being trained
 
-        optimizer: the function that will be used to search for the 
+        optimizer_name: the function that will be used to search for the
                    global minimum of the loss function.
 
         learning_rate: the learning rate that is optimizer is using for 
                        its search.
-                        
-    Raises:
+
+        weight_decay: a regularization term that reduces the network's weights
+
+        momentum: the momentum coefficient used during stochastic gradient descent (SGD)
+
+    Raises:,
         NotImplementedError: The requested optimizer has not been implemented
 
     Returns:
@@ -57,8 +55,11 @@ def get_optimizer(
     """
     optimizers_and_likely_spellings = {
         ("adam", "Adam"): Adam(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay),
-        ("sgd", "SGD"): SGD(params=model_fn.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay),
-        ("rmsprop", "RMSprop", "RMSProp"): RMSprop(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
+        ("sgd", "SGD"): SGD(params=model_fn.parameters(), lr=learning_rate, momentum=momentum,
+                            weight_decay=weight_decay),
+        ("rmsprop", "RMSprop", "RMSProp"): RMSprop(
+            params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum
+        )
     }
 
     optimizer_for_each_spelling = {
@@ -66,7 +67,6 @@ def get_optimizer(
     }
 
     if optimizer_name in optimizer_for_each_spelling.keys():
-        
         return optimizer_for_each_spelling[optimizer_name]
 
     # Choose Adam by default
@@ -78,14 +78,13 @@ def get_optimizer(
 
 
 def run_training_loop(
-    model_fn: Union[BaseCNN,DynamicCNN,ResNet], 
-    criterion: callable,
-    save: bool,
-    optimizer: callable,
-    num_epochs: int,
-    num_classes: int,
-    batch_size: int
-    ) -> tuple[float, float, float, float]:
+        model_fn: Union[BaseCNN, DynamicCNN, ResNet],
+        criterion: callable,
+        save: bool,
+        optimizer: callable,
+        num_epochs: int,
+        batch_size: int
+) -> list[float]:
     """
     Initialise the multi-class precision, recall, and accuracy metrics.
     Then load the training data and set the training device. Train the 
@@ -96,23 +95,24 @@ def run_training_loop(
     Args:
         model_fn: the model object that is to be trained
         criterion: the loss function to be used 
-        save: whether or not the model is to be saved
+        save: whether the model is to be saved
 
         optimizer: the optimizer that we will use to seek the global
                 minimum of the loss function
                    
         num_epochs: the number of epochs that the model should be
                     trained for.
-s
-        num_classes: the number of classes (genera) the mushrooms
-                     should be classified into. 
+
+        batch_size: the number of data samples in each batch
 
     Returns:
         val_metrics: a list of floats which are the average values
                      of the loss, recall, accuracy, and precision
                      of the trained model on the validation set.             
-    """ 
+    """
     # Prepare metrics
+
+    num_classes = get_num_classes()
     precision = MulticlassPrecision(num_classes=num_classes, average="macro")
     recall = MulticlassRecall(num_classes=num_classes, average="macro")
     accuracy = MulticlassAccuracy(num_classes=num_classes, average="macro")
@@ -122,7 +122,7 @@ s
     train_iterator = iter(train_loader)
 
     logger.info("Setting training device")
-    
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_fn.to(device=device)
 
@@ -138,7 +138,6 @@ s
         training_loss_total = 0.0
 
         for (images, labels) in tqdm(train_loader):
-
             # Refresh gradients
             optimizer.zero_grad()
 
@@ -172,21 +171,19 @@ s
         val_iterator = iter(val_data_loader)
 
         with torch.no_grad():
-            
-            for (images, labels) in val_data_loader:
 
+            for (images, labels) in val_data_loader:
                 images, labels = images.to(torch.device(device)), labels.to(torch.device(device))
 
                 output = model_fn.forward(images)
                 val_loss = criterion(output, labels).item()
-
                 val_loss_total += val_loss
 
-                _ , predictions = torch.max(input=output, dim=1)
+                _, predictions = torch.max(input=output, dim=1)
 
-                val_recall = recall(predictions, label)
-                val_accuracy = accuracy(predictions, label)
-                val_precision = precision(predictions, label)
+                val_recall = recall(predictions, labels)
+                val_accuracy = accuracy(predictions, labels)
+                val_precision = precision(predictions, labels)
 
                 val_recall_total += val_recall
                 val_accuracy_total += val_accuracy
@@ -196,11 +193,13 @@ s
             val_recall_avg = val_recall_total / len(val_iterator)
             val_accuracy_avg = val_accuracy_total / len(val_iterator)
             val_precision_avg = val_precision_total / len(val_iterator)
-            
+
             logger.success(
-                "Epoch: [{}/{}], Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, Average Validation Accuracy: {:.2f}, Average Validation Recall: {:.2f},\
-                Average Validation Precision: {:.2f}".format(epoch+1, num_epochs, training_loss_avg, val_loss_avg, val_accuracy_avg, val_recall_avg, val_precision_avg)
-               
+                "Epoch: [{}/{}], Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, \
+                Average Validation Accuracy: {:.2f}, Average Validation Recall: {:.2f},\
+                Average Validation Precision: {:.2f}".format(epoch + 1, num_epochs, training_loss_avg, val_loss_avg,
+                                                             val_accuracy_avg, val_recall_avg, val_precision_avg)
+
             )
 
             val_metrics = {
@@ -214,9 +213,9 @@ s
 
             with experiment.test():
                 experiment.log_metrics(val_metrics)
-            
+
             experiment.log_confusion_matrix(
-                y_true=label,
+                y_true=labels,
                 y_predicted=predictions,
                 title="Confusion Matrix: Evaluation",
                 file_name="confusion-matrix.json"
@@ -225,53 +224,53 @@ s
     # Save model parameters
     if save:
         torch.save(model_fn.state_dict(), MODELS_DIR)
-    
+
     logger.info("Finished Training")
 
-
-    return val_loss_avg, val_accuracy_avg, val_loss_avg, val_precision_avg
+    return [val_loss_avg, val_accuracy_avg, val_loss_avg, val_precision_avg]
 
 
 def train(
-    model_name: str,
-    batch_size: int,
-    learning_rate: float,
-    weight_decay: float|None,
-    momentum: float|None,
-    dropout_prob: float|None,
-    num_epochs: int,
-    optimizer_name: str|None,
-    save: bool,
-    tune_hyperparams: bool|None = True,
-    tuning_trials: int|None = 10
-    ) -> tuple[float, float, float, float]:
-
+        model_name: str,
+        batch_size: int,
+        learning_rate: float | None,
+        weight_decay: float | None,
+        momentum: float | None,
+        dropout_prob: float | None,
+        num_epochs: int,
+        optimizer_name: str | None,
+        tune_hyperparams: bool | None = True,
+        tuning_trials: int | None = 10):
     """
     Train the requested model in either an untuned default state, or in the
     most optimal tuned form that was obtained after the specified number of 
     tuning trials.
 
     Args:
-
+        model_name: the name of the model to be trained
+        
         batch_size: the batch size to be used during training.
 
         learning_rate: the learning rate of the optimizer.
 
-        num_epochs: the number of epochs that the model should be trained 
+        weight_decay: a regularization term that reduces the weights
+
+        num_epochs: the number of epochs that the model should be trained
                     for.
 
-        optimizer: the name of the optimizer that is to be used.
+        dropout_prob: the proportion of nodes that will be omitted.
 
-        device: a string which determines whether the CPU or a GPU will be
-                used for training.
+        optimizer_name: the name of the optimizer that is to be used.
 
-        save: a boolean that determines whether the model is to be saved
+        momentum: the momentum coefficient used during stochastic gradient descent (SGD)
 
         tune_hyperparams: a boolean that indicates whether hyperparameters
                           are to be tuned or not. If it is False, a default
                           version of the model will be trained.
-    """
 
+        tuning_trials: the number of optuna trials to run.
+    """
+    num_classes = get_num_classes()
     logger.info("Setting up neural network")
 
     if not tune_hyperparams:
@@ -281,12 +280,12 @@ def train(
             model_fn = BaseCNN(num_classes=num_classes)
 
         elif model_name in ["dynamic", "Dynamic"]:
-            
+
             # Provide a default configuration
             default_layer_config = [
                 {"type": "conv", "out_channels": 8, "kernel_size": 3, "padding": 1, "pooling": True, "stride": 1},
                 {"type": "conv", "out_channels": 16, "kernel_size": 3, "padding": 1, "pooling": True, "stride": 1}
-                
+
             ]
 
             model_fn = DynamicCNN(
@@ -314,9 +313,9 @@ def train(
             )
 
         criterion = CrossEntropyLoss()
-            
+
         chosen_optimizer = get_optimizer(
-            model_fn=model_fn, 
+            model_fn=model_fn,
             learning_rate=learning_rate,
             optimizer_name=optimizer_name,
             weight_decay=weight_decay,
@@ -324,11 +323,10 @@ def train(
         )
 
         val_metrics = run_training_loop(
-            model_fn=model_fn, 
+            model_fn=model_fn,
             num_epochs=num_epochs,
             criterion=criterion,
             optimizer=chosen_optimizer,
-            num_classes=num_classes,
             batch_size=batch_size,
             save=True
         )
@@ -341,10 +339,11 @@ def train(
 
         optimize_hyperparams(
             model_name=model_name,
-            tuning_trials=10,
+            tuning_trials=tuning_trials,
             batch_size=batch_size,
             experiment=experiment
         )
+
 
 train(
     model_name="resnet50",
@@ -352,9 +351,8 @@ train(
     learning_rate=None,
     num_epochs=20,
     dropout_prob=None,
-    optimizer_name=None,  
+    optimizer_name=None,
     tune_hyperparams=True,
     weight_decay=None,
-    momentum=None,
-    save=True
+    momentum=None
 )
