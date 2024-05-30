@@ -1,6 +1,5 @@
 from comet_ml import Experiment
 
-import os 
 import joblib
 
 from loguru import logger 
@@ -10,7 +9,7 @@ from optuna import trial, create_study, Study
 from optuna.visualization import plot_param_importances
 
 from src.feature_pipeline.data_preparation import get_num_classes
-from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN
+from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
 
 from src.setup.config import settings
 from src.setup.paths import TRIALS_DIR
@@ -178,6 +177,10 @@ def optimize_hyperparams(
 
             # Choose the number of convolutional, and fully connected layers
             conv_layers = trial.suggest_int(name="num_conv_layers", low=2, high=6)
+            out_channels = trial.suggest_int(name="out_channels", low=16, high=96)
+            dropout_prob = trial.suggest_int(name="dropout", low=0.05, high=0.5)
+
+            prev_out_channels = 16
 
             # For each of these convolutional layers, choose values of the parameters of the model
             layer_configs = []       
@@ -190,19 +193,24 @@ def optimize_hyperparams(
 
                 conv_config = {
                     "type": "conv",
-                    "out_channels": trial.suggest_int(name="out_channels", low=16, high=96, step=16),
+                    "out_channels": prev_out_channels,
                     "kernel_size": 3,
-                    "stride": 1,
+                    "stride": stride,
+                    "pooling": True,
                     "padding": padding
                 }
 
                 layer_configs.append(conv_config)
+
+                # Ensure that the "out_channels" parameter of the next convolutional layer is double
+                # that of the previous layer. This choice is largely arbirtary.
+                prev_out_channels*=2
             
             model_fn = DynamicCNN(
                 in_channels=3, 
                 num_classes=num_classes, 
                 layer_configs=layer_configs,
-                dropout_prob=trial.suggest_int(name="dropout", low=0.05, high=0.5)
+                dropout_prob=dropout_prob
             )
 
         elif model_name in ["bigger", "Bigger"]:
@@ -214,13 +222,16 @@ def optimize_hyperparams(
                 trial=trial
             )
 
+        if "resnet" or "Resnet" in model_name:
+            model_fn = get_resnet(model_name=model_name)
+
         else:
             raise Exception(
                 'Please enter "base" and "dynamic" for the base and dynamic models respectively.'
             )
 
         criterion = CrossEntropyLoss()
-            
+
         optimizer_choice = trial.suggest_categorical(
             name="optimizer", 
             choices=["Adam", "SGD", "RMSProp"]
@@ -231,8 +242,9 @@ def optimize_hyperparams(
         if optimizer_choice == "Adam":
             
             # I didn't use get_optimizer() here because I would have to include momentum=None in the arguments
-            # because Adam does not have a momentum parameter. Upon doing this, optuna complains about 
-            # momentum having no value. It's simply easier to call Adam directly here.
+            # because Adam does not have a momentum parameter. Upon doing this, optuna complains about momentum 
+            # having no value. It's simply easier to call Adam directly here.
+            
             optimizer = Adam(
                 params=model_fn.parameters(), 
                 lr=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
@@ -253,7 +265,6 @@ def optimize_hyperparams(
             model_fn=model_fn, 
             criterion=criterion,
             optimizer=optimizer,
-            num_classes=num_classes,
             num_epochs=num_epochs,
             batch_size=batch_size,
             save=True

@@ -1,9 +1,9 @@
-from loguru import logger 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 from src.setup.paths import PARENT_DIR
 
+
 class Settings(BaseSettings):
+    """ Using pydantic to validate environment variables """
 
     model_config = SettingsConfigDict(
         env_file=PARENT_DIR/".env",
@@ -13,12 +13,12 @@ class Settings(BaseSettings):
 
     # CometML
     comet_api_key: str
-    comet_workspace: str
     comet_project_name: str
+    comet_workspace: str
 
     # Image dimensions
     resized_image_width: int
     resized_image_height: int
-  
+
 
 settings = Settings()
