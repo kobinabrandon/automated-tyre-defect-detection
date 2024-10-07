@@ -102,9 +102,7 @@ class BiggerCNN(Module):
         )
 
         self.feature_extractor = Sequential(self.layers)
-
         self.feature_extractor_output_size = calculation_output_feature_map_size(model_fn=self)
-
         self.classifier = Linear(in_features=self.feature_extractor_output_size, out_features=num_classes)
 
     def forward(self, image):

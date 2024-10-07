@@ -15,6 +15,7 @@ from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR
 from src.feature_pipeline.data_preparation import make_dataset, get_num_classes
 from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
 
+
 experiment = Experiment(
     api_key=settings.comet_api_key,
     project_name=settings.comet_project_name,
@@ -111,7 +112,6 @@ def run_training_loop(
                      of the trained model on the validation set.             
     """
     # Prepare metrics
-
     num_classes = get_num_classes()
     precision = MulticlassPrecision(num_classes=num_classes, average="macro")
     recall = MulticlassRecall(num_classes=num_classes, average="macro")
