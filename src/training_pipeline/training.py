@@ -8,12 +8,14 @@ from tqdm import tqdm
 from torch.nn import CrossEntropyLoss
 from torch.optim import Adam, SGD, RMSprop
 from torch.optim.optimizer import Optimizer
+
 from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
 
 from src.setup.config import settings
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR
-from src.feature_pipeline.data_preparation import make_dataset, get_num_classes
-from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
+from src.feature_pipeline.preprocessing import make_dataset, get_num_classes
+from src.training_pipeline.toy_models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
+from src.training_pipeline.hyperparameter_tuning import optimize_hyperparams
 
 
 experiment = Experiment(
@@ -25,11 +27,11 @@ experiment = Experiment(
 
 
 def get_optimizer(
-        model_fn: Union[BaseCNN, DynamicCNN, ResNet],
-        optimizer_name: str,
-        learning_rate: float,
-        weight_decay: float | None,
-        momentum: float | None
+    model_fn: Union[BaseCNN, DynamicCNN, ResNet],
+    learning_rate: float,
+    optimizer_name: str| None,
+    weight_decay: float | None,
+    momentum: float | None
 ) -> Optimizer:
     """
     The function returns the required optimizer function, based on the entered
@@ -37,15 +39,9 @@ def get_optimizer(
 
     Args: 
         model_fn: the model that is being trained
-
-        optimizer_name: the function that will be used to search for the
-                   global minimum of the loss function.
-
-        learning_rate: the learning rate that is optimizer is using for 
-                       its search.
-
+        optimizer_name: the function that will be used to search for the global minimum of the loss function.
+        learning_rate: the learning rate that is optimizer is using for its search.
         weight_decay: a regularization term that reduces the network's weights
-
         momentum: the momentum coefficient used during stochastic gradient descent (SGD)
 
     Raises:,
@@ -54,28 +50,18 @@ def get_optimizer(
     Returns:
         Optimizer: the optimizer that will be returned.
     """
-    optimizers_and_likely_spellings = {
-        ("adam", "Adam"): Adam(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay),
-        ("sgd", "SGD"): SGD(params=model_fn.parameters(), lr=learning_rate, momentum=momentum,
-                            weight_decay=weight_decay),
-        ("rmsprop", "RMSprop", "RMSProp"): RMSprop(
-            params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum
-        )
+    optimizers = {
+        "adam": Adam(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay),
+        "sgd": SGD(params=model_fn.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay),
+        "rmsprop": RMSprop(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
     }
 
-    optimizer_for_each_spelling = {
-        spelling: function for spellings, function in optimizers_and_likely_spellings.items() for spelling in spellings
-    }
-
-    if optimizer_name in optimizer_for_each_spelling.keys():
-        return optimizer_for_each_spelling[optimizer_name]
-
-    # Choose Adam by default
+    if optimizer_name.lower() in optimizers.keys():
+        return optimizers[optimizer_name.lower()]
     elif optimizer_name is None:
-        return optimizer_for_each_spelling["adam"]
-
+        return optimizers["adam"]
     else:
-        raise NotImplementedError("Consider using the Adam, SGD, or RMSprop optimizers")
+        raise NotImplementedError("Please use the Adam, SGD, or RMSprop optimizers")
 
 
 def run_training_loop(
@@ -118,7 +104,7 @@ def run_training_loop(
     accuracy = MulticlassAccuracy(num_classes=num_classes, average="macro")
 
     logger.info("Collecting training data")
-    train_loader = make_dataset(path=TRAIN_DATA_DIR, batch_size=batch_size)
+    train_loader = make_dataset(path=TRAIN_DATA_DIR, batch_size=batch_size, pretrained=False)
     train_iterator = iter(train_loader)
 
     logger.info("Setting training device")
@@ -128,37 +114,21 @@ def run_training_loop(
 
     logger.info("Training the untuned model")
     for epoch in range(num_epochs):
-
         logger.info(f"Starting Epoch {epoch}")
-
-        # Put model in training mode
-        model_fn.train()
-
-        # Initialise training loss
-        training_loss_total = 0.0
+        model_fn.train()  # Put model in training mode
+        training_loss_total = 0.0  # Initialise training loss
 
         for (images, labels) in tqdm(train_loader):
-            # Refresh gradients
-            optimizer.zero_grad()
-
+            optimizer.zero_grad()  # Refresh gradients
             images, labels = images.to(device), labels.to(device)
             output = model_fn.forward(images)
-
-            # Calculate the training loss 
-            training_loss = criterion(output, labels)
-
-            # Calculate the gradient of the loss function
-            training_loss.backward()
-
-            # Adjust weights and biases
-            optimizer.step()
-
+            training_loss = criterion(output, labels)  # Calculate the training loss 
+            training_loss.backward()  # Calculate the gradient of the loss function
+            optimizer.step()  # Adjust weights and biases
             training_loss_total += training_loss.item()
 
         training_loss_avg = training_loss_total / len(train_iterator)
-
-        # Put the model in evaluation mode
-        model_fn.eval()
+        model_fn.eval()  # Put the model in evaluation mode
 
         # Initialise validation loss
         val_loss_total = 0.0
@@ -173,7 +143,7 @@ def run_training_loop(
         with torch.no_grad():
 
             for (images, labels) in val_data_loader:
-                images, labels = images.to(torch.device(device)), labels.to(torch.device(device))
+                images, labels = images.to(device), labels.to(device)
 
                 output = model_fn.forward(images)
                 val_loss = criterion(output, labels).item()
@@ -197,9 +167,15 @@ def run_training_loop(
             logger.success(
                 "Epoch: [{}/{}], Average Training Loss: {:.2f}, Average Validation_loss: {:.2f}, \
                 Average Validation Accuracy: {:.2f}, Average Validation Recall: {:.2f},\
-                Average Validation Precision: {:.2f}".format(epoch + 1, num_epochs, training_loss_avg, val_loss_avg,
-                                                             val_accuracy_avg, val_recall_avg, val_precision_avg)
-
+                Average Validation Precision: {:.2f}".format(
+                    epoch + 1, 
+                    num_epochs, 
+                    training_loss_avg, 
+                    val_loss_avg, 
+                    val_accuracy_avg, 
+                    val_recall_avg, 
+                    val_precision_avg
+                )
             )
 
             val_metrics = {
@@ -226,7 +202,6 @@ def run_training_loop(
         torch.save(model_fn.state_dict(), MODELS_DIR)
 
     logger.info("Finished Training")
-
     return [val_loss_avg, val_accuracy_avg, val_loss_avg, val_precision_avg]
 
 
@@ -248,63 +223,37 @@ def train(
 
     Args:
         model_name: the name of the model to be trained
-        
         batch_size: the batch size to be used during training.
-
         learning_rate: the learning rate of the optimizer.
-
         weight_decay: a regularization term that reduces the weights
-
-        num_epochs: the number of epochs that the model should be trained
-                    for.
-
+        num_epochs: the number of epochs that the model should be trained for.
         dropout_prob: the proportion of nodes that will be omitted.
-
         optimizer_name: the name of the optimizer that is to be used.
-
         momentum: the momentum coefficient used during stochastic gradient descent (SGD)
-
-        tune_hyperparams: a boolean that indicates whether hyperparameters
-                          are to be tuned or not. If it is False, a default
-                          version of the model will be trained.
-
+        tune_hyperparams: a boolean that indicates whether hyperparameters are to be tuned.
         tuning_trials: the number of optuna trials to run.
     """
     num_classes = get_num_classes()
     logger.info("Setting up neural network")
 
     if not tune_hyperparams:
-
-        if model_name in ["base", "Base"]:
-
+        if model_name.lower() == "base":
             model_fn = BaseCNN(num_classes=num_classes)
-
-        elif model_name in ["dynamic", "Dynamic"]:
-
+        elif model_name.lower() == "dynamic":
             # Provide a default configuration
             default_layer_config = [
                 {"type": "conv", "out_channels": 8, "kernel_size": 3, "padding": 1, "pooling": True, "stride": 1},
                 {"type": "conv", "out_channels": 16, "kernel_size": 3, "padding": 1, "pooling": True, "stride": 1}
-
             ]
 
             model_fn = DynamicCNN(
-                in_channels=3,
-                num_classes=num_classes,
-                layer_configs=default_layer_config,
-                dropout_prob=dropout_prob
+                in_channels=3, num_classes=num_classes, layer_configs=default_layer_config, dropout_prob=dropout_prob
             )
 
-        elif model_name in ["bigger", "Bigger"]:
+        elif model_name.lower() == "bigger":
+            model_fn = BiggerCNN(in_channels=3, num_classes=num_classes, tune_hyperparams=tune_hyperparams, trial=None)
 
-            model_fn = BiggerCNN(
-                in_channels=3,
-                num_classes=num_classes,
-                tune_hyperparams=tune_hyperparams,
-                trial=None
-            )
-
-        elif "resnet" or "Resnet" or "ResNet" in model_name:
+        elif "resnet" in model_name.lower():
             model_fn = get_resnet(model_name=model_name)
 
         else:
@@ -332,9 +281,6 @@ def train(
         )
 
     else:
-
-        from src.training_pipeline.hyperparameter_tuning import optimize_hyperparams
-
         logger.info("Finding optimal values of hyperparameters")
 
         optimize_hyperparams(

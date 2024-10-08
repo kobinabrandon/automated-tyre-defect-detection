@@ -8,8 +8,8 @@ from torch.optim import Adam
 from optuna import trial, create_study, Study
 from optuna.visualization import plot_param_importances
 
-from src.feature_pipeline.data_preparation import get_num_classes
-from src.training_pipeline.models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
+from src.feature_pipeline.preprocessing import get_num_classes
+from src.training_pipeline.toy_models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
 
 from src.setup.config import settings
 from src.setup.paths import TRIALS_DIR

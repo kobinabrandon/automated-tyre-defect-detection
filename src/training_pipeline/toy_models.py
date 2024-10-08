@@ -16,7 +16,7 @@ from torch.nn import (
 from optuna import trial
 from loguru import logger
 from src.setup.config import settings
-from src.feature_pipeline.data_preparation import get_num_classes
+from src.feature_pipeline.preprocessing import get_num_classes
 
 from typing import Optional
 
@@ -109,7 +109,6 @@ class BiggerCNN(Module):
         return self.classifier(
             self.feature_extractor(image)
         )
-
 
 class DynamicCNN(Module):
     """
