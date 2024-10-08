@@ -8,6 +8,8 @@ first project with library (I used TensorFlow in the past).
 """
 
 import torch
+from typing import Optional
+
 from collections import OrderedDict
 from torch.nn import (
     Module, Conv2d, BatchNorm2d, Dropout2d, Sequential, ReLU, MaxPool2d, Linear, Flatten, AdaptiveAvgPool2d
@@ -15,10 +17,7 @@ from torch.nn import (
 
 from optuna import trial
 from loguru import logger
-from src.setup.config import settings
-from src.feature_pipeline.preprocessing import get_num_classes
-
-from typing import Optional
+from src.setup.config import config
 
 
 class BaseCNN(Module):
@@ -28,13 +27,7 @@ class BaseCNN(Module):
     working CNN that I built.
     """
 
-    def __init__(self, num_classes: int):
-        """
-        Args
-            num_classes: the number of genera for our mushroom 
-                       classification problem
-        """
-
+    def __init__(self):
         super().__init__()
         self.layers = OrderedDict(
             [
@@ -50,21 +43,14 @@ class BaseCNN(Module):
 
         self.feature_extractor = Sequential(self.layers)
         feature_extractor_output_size = calculation_output_feature_map_size(model_fn=self)
-
-        self.classifier = Linear(
-            in_features=feature_extractor_output_size,
-            out_features=num_classes
-        )
+        self.classifier = Linear(in_features=feature_extractor_output_size, out_features=config.num_classes)
 
     def forward(self, image):
         """
         Implement a forward pass, applying the extractor 
         and classifier to the input image.
         """
-
-        return self.classifier(
-            self.feature_extractor(image)
-        )
+        return self.classifier(self.feature_extractor(image))
 
 
 class BiggerCNN(Module):
@@ -74,28 +60,25 @@ class BiggerCNN(Module):
     terribly.
     """
 
-    def __init__(self, num_classes: int, tune_hyperparams: bool, trial: trial.Trial | None):
+    def __init__(self, tune_hyperparams: bool, trial: trial.Trial | None):
         super().__init__()
-        self.dropout_rate_1 = trial.suggest_float(name="first_dropout_rate", low=0, high=0.5,
-                                                  step=0.1) if tune_hyperparams else 0.2
-        self.dropout_rate_2 = trial.suggest_float(name="second_dropout_rate", low=0, high=0.5,
-                                                  step=0.1) if tune_hyperparams else 0.2
-        self.dropout_rate_3 = trial.suggest_float(name="third_dropout_rate", low=0, high=0.5,
-                                                  step=0.1) if tune_hyperparams else 0.2
+        self.first_dropout = trial.suggest_float(name="first_dropout_rate", low=0, high=0.5, step=0.1) if tune_hyperparams else 0.2
+        self.second_dropout = trial.suggest_float(name="second_dropout_rate", low=0, high=0.5, step=0.1) if tune_hyperparams else 0.2
+        self.third_dropout = trial.suggest_float(name="third_dropout_rate", low=0, high=0.5, step=0.1) if tune_hyperparams else 0.2
 
         self.layers = OrderedDict(
             [
                 ("conv1", Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1)),
                 ("pool1", MaxPool2d(kernel_size=2)),
-                ("drop1", Dropout2d(p=self.dropout_rate_1)),
+                ("drop1", Dropout2d(p=self.first_dropout)),
                 ("relu1", ReLU()),
                 ("conv2", Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)),
                 ("pool2", MaxPool2d(kernel_size=2)),
-                ("drop2", Dropout2d(p=self.dropout_rate_2)),
+                ("drop2", Dropout2d(p=self.second_dropout)),
                 ("relu2", ReLU()),
                 ("conv3", Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)),
                 ("pool3", MaxPool2d(kernel_size=2)),
-                ("drop3", Dropout2d(p=self.dropout_rate_3)),
+                ("drop3", Dropout2d(p=self.third_dropout)),
                 ("relu3", ReLU()),
                 ("flatten", Flatten())
             ]
@@ -103,12 +86,11 @@ class BiggerCNN(Module):
 
         self.feature_extractor = Sequential(self.layers)
         self.feature_extractor_output_size = calculation_output_feature_map_size(model_fn=self)
-        self.classifier = Linear(in_features=self.feature_extractor_output_size, out_features=num_classes)
+        self.classifier = Linear(in_features=self.feature_extractor_output_size, out_features=config.num_classes)
 
     def forward(self, image):
-        return self.classifier(
-            self.feature_extractor(image)
-        )
+        return self.classifier(self.feature_extractor(image))
+
 
 class DynamicCNN(Module):
     """
@@ -122,27 +104,18 @@ class DynamicCNN(Module):
     in a relatively convenient manner.
     """
 
-    def __init__(
-        self,
-        in_channels: int,
-        num_classes: int,
-        layer_configs: list[dict],
-        dropout_prob: float
-    ):
-
+    def __init__(self, in_channels: int, layer_configs: list[dict], dropout: float):
         super(DynamicCNN, self).__init__()
 
         self.layers = OrderedDict(
-            self._make_layers(
-                in_channels=in_channels, layer_configs=layer_configs, dropout_prob=dropout_prob
-            )
+            self._make_layers(in_channels=in_channels, layer_configs=layer_configs, dropout=dropout)
         )
 
         self.feature_extractor = Sequential(self.layers)
         self.feature_extractor_output_size = calculation_output_feature_map_size(model_fn=self)
-        self.classifier = Linear(in_features=self.feature_extractor_output_size, out_features=num_classes)
+        self.classifier = Linear(in_features=self.feature_extractor_output_size, out_features=config.num_classes)
 
-    def _make_layers(self, in_channels, layer_configs, dropout_prob) -> list[tuple[str, Module]]:
+    def _make_layers(self, in_channels, layer_configs, dropout) -> list[tuple[str, Module]]:
 
         """
         Args:
@@ -180,7 +153,7 @@ class DynamicCNN(Module):
                 )
 
                 layers.append(
-                    (f"drop{conv_count}", Dropout2d(p=dropout_prob))
+                    (f"drop{conv_count}", Dropout2d(p=dropout))
                 )
 
                 layers.append(
@@ -210,14 +183,12 @@ class DynamicCNN(Module):
 
     def forward(self, image):
 
-        return self.classifier(
-            self.feature_extractor(image)
-        )
+        return self.classifier(self.feature_extractor(image))
 
 
 def calculation_output_feature_map_size(
         model_fn: BaseCNN | BiggerCNN | DynamicCNN,
-        image_resolution: tuple[int] = (settings.resized_image_width, settings.resized_image_height)
+        image_resolution: tuple[int] = (config.resized_image_width, config.resized_image_height)
 ) -> int:
     """
     We compute the size of the output feature map, which is required by the 
@@ -266,11 +237,7 @@ class ConvBlock(Module):
             super().__init__()
             self.conv = Sequential(
                 Conv2d(
-                    in_channels=in_channels,
-                    out_channels=out_channels,
-                    kernel_size=kernel_size,
-                    stride=stride,
-                    padding=padding
+                    in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding
                 ),
                 BatchNorm2d(num_features=out_channels)
             )
@@ -382,7 +349,7 @@ class ResNet(Module):
     architecture.
     """
 
-    def __init__(self, blocks_per_layer: list[int], num_classes: int, in_channels: int = 3):
+    def __init__(self, blocks_per_layer: list[int], in_channels: int = 3):
         """
         Initialise the various layers that will make up the residual network.
 
@@ -421,7 +388,7 @@ class ResNet(Module):
         blocks_last_layer = len(blocks_per_layer) - 1
         fc_input_features = 16 * (2 ** blocks_last_layer) * self.expansion
 
-        self.fully_connected = Linear(in_features=fc_input_features, out_features=num_classes)
+        self.fully_connected = Linear(in_features=fc_input_features, out_features=config.num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -489,10 +456,7 @@ class ResNet(Module):
         return layers
 
 
-def get_resnet(
-    model_name: str,
-    num_classes: int = get_num_classes()
-) -> ResNet:
+def get_resnet(model_name: str) -> ResNet:
     """
     Accept the name of a particular ResNet architecture, and return it.
     The accepted architectures are ResNet50, ResNet101, and ResNet152. 
@@ -500,18 +464,43 @@ def get_resnet(
     Returns:
         model_fn: the model with the requested ResNet architecture.
     """
-    if model_name in ["resnet50", "Resnet50", "ResNet50"]:
-        model_fn = ResNet(in_channels=3, blocks_per_layer=[3, 4, 6, 3], num_classes=num_classes)
-
-    elif model_name in ["resnet101", "Resnet101", "ResNet101"]:
-        model_fn = ResNet(in_channels=3, blocks_per_layer=[3, 4, 24, 3], num_classes=num_classes)
-
-    elif model_name in ["resnet152", "Resnet152", "ResNet152"]:
-        model_fn = ResNet(in_channels=3, blocks_per_layer=[3, 8, 36, 3], num_classes=num_classes)
-
+    if model_name.lower() == "resnet50":
+        model_fn = ResNet(in_channels=3, blocks_per_layer=[3, 4, 6, 3])
+    elif model_name.lower() == "resnet101":
+        model_fn = ResNet(in_channels=3, blocks_per_layer=[3, 4, 24, 3])
+    elif model_name.lower() == "resnet152":
+        model_fn = ResNet(in_channels=3, blocks_per_layer=[3, 8, 36, 3])
     else:
-        raise NotImplementedError(
-            "This model is not among the accepted ResNet architectures. Please name resnet50, resnet101, or resnet152."
-        )
+        raise NotImplementedError("The only implemented ResNet architectures are resnet50, resnet101, or resnet152.")
+
+    return model_fn
+
+
+def get_toy_model(model_name: str):
+    """
+
+    Raises:
+        Exception: _description_
+
+    Returns:
+        _type_: _description_
+    """
+
+    if model_name.lower() == "base":
+        model_fn = BaseCNN()
+    elif model_name.lower() == "bigger":
+        model_fn = BiggerCNN(in_channels=3, num_classes=config.num_classes, tune_hyperparams=tune_hyperparams, trial=None)
+    elif model_name.lower() in ["resnet50", "resnet101", "resnet152"]:
+        model_fn = get_resnet(model_name=model_name)
+ 
+    elif model_name.lower() == "dynamic":
+        default_config = [
+            {"type": "conv", "out_channels": 8, "kernel_size": 3, "padding": 1, "pooling": True, "stride": 1},
+            {"type": "conv", "out_channels": 16, "kernel_size": 3, "padding": 1, "pooling": True, "stride": 1}
+        ]
+
+        model_fn = DynamicCNN(in_channels=3, num_classes=num_classes, layer_configs=default_config, dropout=dropout)
+    else:
+        raise Exception('Please enter "base", "dynamic" or the name of one of the implemented ResNet architectures.')
 
     return model_fn

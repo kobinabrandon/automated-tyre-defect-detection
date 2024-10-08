@@ -1,27 +1,27 @@
-from comet_ml import Experiment
 from typing import Union
+from comet_ml import Experiment  # For some reason, to log to CometML automatically, we must import comet_ml before torch
 
 import torch
-from loguru import logger
 from tqdm import tqdm
+from loguru import logger
 
 from torch.nn import CrossEntropyLoss
 from torch.optim import Adam, SGD, RMSprop
 from torch.optim.optimizer import Optimizer
-
 from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
 
-from src.setup.config import settings
+from src.setup.config import config
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR
-from src.feature_pipeline.preprocessing import make_dataset, get_num_classes
-from src.training_pipeline.toy_models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
+from src.feature_pipeline.preprocessing import make_full_dataset
+from src.training_pipeline.toy_models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_toy_model
+from src.training_pipeline.pretrained_models import get_pretrained_model
 from src.training_pipeline.hyperparameter_tuning import optimize_hyperparams
 
 
 experiment = Experiment(
-    api_key=settings.comet_api_key,
-    project_name=settings.comet_project_name,
-    workspace=settings.comet_workspace,
+    api_key=config.comet_api_key,
+    project_name=config.comet_project_name,
+    workspace=config.comet_workspace,
     log_code=False
 )
 
@@ -32,7 +32,7 @@ def get_optimizer(
     optimizer_name: str| None,
     weight_decay: float | None,
     momentum: float | None
-) -> Optimizer:
+    ) -> Optimizer:
     """
     The function returns the required optimizer function, based on the entered
     specifications.
@@ -65,13 +65,13 @@ def get_optimizer(
 
 
 def run_training_loop(
-        model_fn: Union[BaseCNN, DynamicCNN, ResNet],
-        criterion: callable,
-        save: bool,
-        optimizer: callable,
-        num_epochs: int,
-        batch_size: int
-) -> list[float]:
+    model_fn: Union[BaseCNN, DynamicCNN, ResNet],
+    criterion: callable,
+    save: bool,
+    optimizer: callable,
+    num_epochs: int,
+    batch_size: int
+    ) -> list[float]:
     """
     Initialise the multi-class precision, recall, and accuracy metrics.
     Then load the training data and set the training device. Train the 
@@ -108,7 +108,6 @@ def run_training_loop(
     train_iterator = iter(train_loader)
 
     logger.info("Setting training device")
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_fn.to(device=device)
 
@@ -206,16 +205,17 @@ def run_training_loop(
 
 
 def train(
-        model_name: str,
-        batch_size: int,
-        learning_rate: float | None,
-        weight_decay: float | None,
-        momentum: float | None,
-        dropout_prob: float | None,
-        num_epochs: int,
-        optimizer_name: str | None,
-        tune_hyperparams: bool | None = True,
-        tuning_trials: int | None = 10):
+    model_name: str,
+    batch_size: int,
+    learning_rate: float | None,
+    weight_decay: float | None,
+    momentum: float | None,
+    dropout: float | None,
+    num_epochs: int,
+    optimizer_name: str | None,
+    tune_hyperparams: bool | None = True,
+    tuning_trials: int | None = 10
+    ) -> None:
     """
     Train the requested model in either an untuned default state, or in the
     most optimal tuned form that was obtained after the specified number of 
@@ -227,40 +227,20 @@ def train(
         learning_rate: the learning rate of the optimizer.
         weight_decay: a regularization term that reduces the weights
         num_epochs: the number of epochs that the model should be trained for.
-        dropout_prob: the proportion of nodes that will be omitted.
+        dropout: the proportion of nodes that will be omitted.
         optimizer_name: the name of the optimizer that is to be used.
         momentum: the momentum coefficient used during stochastic gradient descent (SGD)
         tune_hyperparams: a boolean that indicates whether hyperparameters are to be tuned.
         tuning_trials: the number of optuna trials to run.
     """
-    num_classes = get_num_classes()
     logger.info("Setting up neural network")
 
     if not tune_hyperparams:
-        if model_name.lower() == "base":
-            model_fn = BaseCNN(num_classes=num_classes)
-        elif model_name.lower() == "dynamic":
-            # Provide a default configuration
-            default_layer_config = [
-                {"type": "conv", "out_channels": 8, "kernel_size": 3, "padding": 1, "pooling": True, "stride": 1},
-                {"type": "conv", "out_channels": 16, "kernel_size": 3, "padding": 1, "pooling": True, "stride": 1}
-            ]
-
-            model_fn = DynamicCNN(
-                in_channels=3, num_classes=num_classes, layer_configs=default_layer_config, dropout_prob=dropout_prob
-            )
-
-        elif model_name.lower() == "bigger":
-            model_fn = BiggerCNN(in_channels=3, num_classes=num_classes, tune_hyperparams=tune_hyperparams, trial=None)
-
-        elif "resnet" in model_name.lower():
-            model_fn = get_resnet(model_name=model_name)
-
-        else:
-            raise Exception(
-                'Please enter "base", "dynamic"(for the base and dynamic models respectively), or the name of a ResNet.'
-            )
-
+        if model_name.lower() in ["base", "dynamic", "bigger", "resnet50", "resnet101", "resnet152"]:
+            model_fn = get_toy_model(model_name=model_name.lower())
+        elif model_name in ["vit", "hybrid_vit", "beit"]:
+            model_fn = get_pretrained_model(model_name=model_name)
+        
         criterion = CrossEntropyLoss()
 
         chosen_optimizer = get_optimizer(
@@ -292,11 +272,11 @@ def train(
 
 
 train(
-    model_name="resnet50",
+    model_name="google/vit-base-patch16-224",
     batch_size=20,
     learning_rate=None,
     num_epochs=20,
-    dropout_prob=None,
+    dropout=None,
     optimizer_name=None,
     tune_hyperparams=True,
     weight_decay=None,

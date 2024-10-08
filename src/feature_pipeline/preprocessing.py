@@ -7,25 +7,11 @@ from transformers.models.auto import AutoFeatureExtractor
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFlip, RandomRotation, RandomAutocontrast
 
-from src.setup.config import settings
+from src.setup.config import config
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR, DATA_DIR
 
-    
-def get_num_classes(path: str = DATA_DIR) -> int: 
-    """
-    Each class of mushrooms is in a folder, and this function 
-    will look through the subdirectories of the folder where 
-    the training data is kept. It will then make a list of 
-    these subdirectories, and return the length of said list.
 
-    Returns:
-        int: the length of the list of classes (the genera of mushrooms)
-    """
-    classes = [name for root, sub_dirs, files in os.walk(path, topdown=True) for name in sub_dirs] 
-    return len(classes)
-
-
-class DatasetForHuggingFace(Dataset):
+class DatasetForPretrainedMode(Dataset):
     def __init__(self, image_folder: ImageFolder, transform_fn: callable) -> None:
         self.image_folder = image_folder
         self.transform_fn = transform_fn
@@ -60,25 +46,27 @@ def make_full_dataset(path: Path, pretrained: bool) -> Dataset:
     Returns:
         DataLoader: a Dataloader object which contains the training/validation/testing data.
     """
-    new_size = (settings.resized_image_width, settings.resized_image_height)
+    new_size = (config.resized_image_width, config.resized_image_height)
  
     if pretrained:
-        dataset = DatasetForHuggingFace(image_folder=ImageFolder(root=path), transform_fn=pretrained_transform_fn)
+        dataset = DatasetForPretrainedModels(image_folder=ImageFolder(root=path), transform_fn=pretrained_transform_fn)
     else:
         if path == TRAIN_DATA_DIR:
             transforms = [
-                RandomHorizontalFlip(), RandomRotation(degrees=45), 
-                RandomAutocontrast(), ToTensor(), Resize(size=new_size)
-            ]
+                RandomHorizontalFlip(), RandomRotation(degrees=45), RandomAutocontrast(), ToTensor(), Resize(size=new_size)
+            ]   
         elif path == VAL_DATA_DIR or path == TEST_DATA_DIR:
             transforms = [ToTensor(), Resize(size=new_size)]
 
         composed_transforms = Compose(transforms=transforms)
         dataset = ImageFolder(root=path, transform=composed_transforms)
+        
     return dataset
 
 
-def split_data(train_ratio: float, val_ratio: float, batch_size: int, dataset: Dataset) -> tuple[DataLoader, DataLoader, DataLoader]:
+def split_data(
+    train_ratio: float, val_ratio: float, batch_size: int, dataset: Dataset
+    ) -> tuple[DataLoader, DataLoader, DataLoader]:
     """
 
     Args:
