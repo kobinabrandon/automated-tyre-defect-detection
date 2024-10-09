@@ -1,6 +1,7 @@
 from comet_ml import Experiment
-
 import joblib
+
+from transformers import TrainingArguments, Trainer
 
 from loguru import logger 
 from torch.nn import CrossEntropyLoss
@@ -13,6 +14,7 @@ from src.setup.paths import TRIALS_DIR
 
 from src.training_pipeline.pretrained_models import get_pretrained_model
 from src.training_pipeline.toy_models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
+from src.training_pipeline.training import ToyModelTrainer, PretrainedModelTrainer
 
 
 def save_trial_callback(study: Study, frozen_trial: trial.FrozenTrial):
@@ -58,7 +60,6 @@ class BestTrials(trial.Trial):
 
     def _display_best_trials(self):
         """ Display the key details about the best trials """
-
         for item in self.metrics_and_trials.items():
             if "loss" in item[0]:
                 logger.info(f"Trial with lowest {item[0]}:")
@@ -82,75 +83,64 @@ class BestTrials(trial.Trial):
             objective = "minimize" if "loss" in key else "maximize"
             experiment.log_optimization(metric_name=key, metric_value=value, parameters=value.params, objective="minimize")
 
-            
-def optimize_hyperparams(
-    model_name: str,
-    tuning_trials: int,
-    batch_size: int,
-    experiment: Experiment
-    ):
-
+     
+def perform_tuning(model_name: str, trials: int, experiment: Experiment):
     """
+
     Using the objective function below, optimise the specified hyperparameters by an 
     optuna study for running the specified number of tuning trials. Then save, display 
     these trials before logging them with CometML 
+
+    Args:
+        model_name (str): the chosen shorthand name of the model
+        trials (int): the number of hyperparameter tuning trials to be run.
+        batch_size (int): the batch size to be used during training.
+        experiment (Experiment):a single instance of a CometML experiment.
     """
 
-    def objective(trial: trial.Trial) -> tuple[float, float, float, float]:
+    def objective_function(trial: trial.Trial) -> tuple[float, float, float, float]:
         """
-        For each optuna trial, initialise values of the hyperparameters within the
-        specified ranges, select one of three possible optimizers, and run the 
-        training loop to obtain a tuple of metrics on the validation set. 
+        For each optuna trial, initialise values of the hyperparameters within the specified ranges, select one
+        of three possible optimizers, and run the training loop to obtain a tuple of metrics on the validation set. 
 
         Args:
-            tuning_trials: the number of hyperparameter tuning trials to be run. 
-            experiment: a single instance of a CometML experiment.
+            trial: the particular optuna trial being run
 
         Returns:
             val_metrics: contains a list of floats which are the average values of  the loss,recall, accuracy, 
-                         and precision of the trained model on the validation set.
+                        and precision of the trained model on the validation set.
         """
         num_epochs = trial.suggest_int(name="num_epochs", low=5, high=15)
-        model_fn = get_tuning_candidate(model_name=model_name, trial=trial)
+        batch_size = trial.suggest_int(name="batch_size", low=8, high=64, step=8)
+        learning_rate = trial.suggest_float(name="lr", low=1e-5, high=1e-3, log=True)
+        weight_decay = trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True)
 
-        criterion = CrossEntropyLoss()
-        optimizer_choice = trial.suggest_categorical(name="optimizer", choices=["Adam", "SGD", "RMSProp"])
+        if model_name.lower() in ["vit", "beit", "hybrid_vit"]:
+            model_fn = get_pretrained_model(model_name=model_name.lower())
+        elif model_name.lower() in ["base", "dynamic", "bigger"]:
+            model_fn = get_toy_tuning_candidate(model_name=model_name.lower(), trial=trial)
 
-        if optimizer_choice == "Adam":
-            
-            # I didn't use get_optimizer() here because I would have to include momentum=None in the arguments because
-            # Adam does not have a momentum parameter. Upon doing this, optuna complains about momentum having no value. 
-            # It's simply easier to call Adam directly here.
-            
-            optimizer = Adam(
-                params=model_fn.parameters(),
-                lr=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
-                weight_decay=trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True),
-            )
-
-        from src.training_pipeline.training import get_optimizer, run_training_loop
-        optimizer = get_optimizer(
-            model_fn=model_fn,
-            optimizer_name=optimizer_choice, 
-            learning_rate=trial.suggest_float(name="lr", low=1e-5, high=1e-1, log=True),
-            weight_decay=trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True),
-            momentum=trial.suggest_float(name="momentum", low=0.1, high=0.9)
-        )
+            criterion = CrossEntropyLoss()
+            optimizer_choice = trial.suggest_categorical(name="optimizer", choices=["Adam", "SGD", "RMSProp"])
         
-        val_metrics = run_training_loop(
-            model_fn=model_fn, 
-            criterion=criterion,
-            optimizer=optimizer,
-            num_epochs=num_epochs,
-            batch_size=batch_size,
-            save=True
-        )
-        
-        return val_metrics
-            
+            if optimizer_choice == "Adam":
+                
+                # I didn't use get_optimizer() here because I would have to include momentum=None in the arguments because
+                # Adam does not have a momentum parameter. Upon doing this, optuna complains about momentum having no value. 
+                # It's simply easier to call Adam directly here.
+                
+                optimizer = Adam(params=model_fn.parameters(), lr=learning_rate, weight_decay=weight_decay)
+
+            else:
+                toy_trainer = ToyModelTrainer(model_name=model_name, batch_size=batch_size, num_epochs=num_epochs)
+                optimizer = toy_trainer._get_optimizer(model_fn=model_fn, learning_rate=learning_rate, optimizer_name=optimizer_choice)
+                val_metrics = toy_trainer._run_training_loop(criterion=criterion, save=True, optimizer=optimizer)   
+                return val_metrics
+
+
     logger.info("Searching for optimal values of the hyperparameters")
     study = create_study(directions=["minimize", "maximize", "maximize", "maximize"])  # Study that corresponds to the metrics we want to optimize
-    study.optimize(func=objective, n_trials=tuning_trials, callbacks=[save_trial_callback], timeout=300)
+    study.optimize(func=objective_function, n_trials=trials, callbacks=[save_trial_callback], timeout=300)
 
     logger.info(f"Number of finished trials: {len(study.trials)}")
     best_trials = BestTrials(study=study)
@@ -159,7 +149,7 @@ def optimize_hyperparams(
     best_trials._log_with_comet()
 
 
-def get_tuning_candidate(model_name: str, trial: trial.Trial) -> callable:
+def get_toy_tuning_candidate(model_name: str, trial: trial.Trial) -> callable:
 
     if model_name.lower() == "base":
         return BaseCNN()

@@ -65,7 +65,10 @@ def make_full_dataset(path: Path, pretrained: bool) -> Dataset:
 
 
 def split_data(
-    train_ratio: float, val_ratio: float, batch_size: int, dataset: Dataset
+    dataset: Dataset,
+    train_ratio: float = 0.7, 
+    val_ratio: float = 0.15, 
+    batch_size: int = 0.15
     ) -> tuple[DataLoader, DataLoader, DataLoader]:
     """
 
@@ -88,6 +91,6 @@ def split_data(
     train_dataset, val_dataset, test_dataset = random_split(dataset=dataset, lengths=[train_size, val_size, test_size])    
     train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
     val_dataloader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=True)
-    test_dataloader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=True)
+    test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
 
     return train_dataloader, val_dataloader, test_dataloader
