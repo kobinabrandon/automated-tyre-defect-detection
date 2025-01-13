@@ -1,6 +1,7 @@
 # Directories
-**/data
-**/models
+**/data/
+**/logs/
+**/models/
 **/__pycache__
 
 # Files
