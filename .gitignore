@@ -1,11 +1,7 @@
 # Directories
-/Mushrooms
-/models
-/.idea
-/.vscode
-
+**/data
+**/models
 **/__pycache__
 
 # Files
 .env
-.ruff_cache
