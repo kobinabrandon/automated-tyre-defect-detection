@@ -24,9 +24,9 @@ def save_trial_callback(study: Study, frozen_trial: trial.FrozenTrial):
         study: the optuna optimisation task being run.
         frozen_trial: the trial to be saved.
     """
-    trial_name = TRIALS_DIR/f"Trial_{frozen_trial.number}.pkl"
-    joblib.dump(value=frozen_trial, filename=trial_name)
- 
+    trial_path = TRIALS_DIR/f"Trial_{frozen_trial.number}.pkl"
+    joblib.dump(value=frozen_trial, filename=trial_path)
+
 
 class BestTrials(trial.Trial):
     """
@@ -35,8 +35,8 @@ class BestTrials(trial.Trial):
     """
 
     def __init__(self, study: Study):
-        super().__init__()
-        self.trial_lowest_avg_val_loss = min(study.best_trials, key=lambda t: t.values[0])
+        super().__init__(study=study)
+        self.trial_lowest_avg_val_loss: int = min(study.best_trials, key=lambda t: t.values[0])
         self.trial_highest_avg_val_accuracy = max(study.best_trials, key=lambda t: t.values[1])
         self.trial_highest_val_recall = max(study.best_trials, key=lambda t: t.values[2])
         self.trial_highest_val_precision = max(study.best_trials, key=lambda t: t.values[3])

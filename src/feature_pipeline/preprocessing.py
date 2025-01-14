@@ -3,39 +3,44 @@ from PIL.Image import Image
 from torchvision.datasets import ImageFolder
 from transformers.models.auto import AutoFeatureExtractor
 from torch.utils.data import DataLoader, Dataset, random_split
-from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFlip, RandomRotation, RandomAutocontrast
+from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFlip, RandomRotation, transforms
 
 from src.setup.config import image_config 
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR, DATA_DIR
 
 
-class DatasetForPretrainedMode(Dataset):
-    def __init__(self, image_folder: ImageFolder, transform_fn: callable) -> None:
-        self.image_folder: ImageFolder = image_folder
-        self.transform_fn: callable = transform_fn
+# class DatasetForPretrainedMode(Dataset):
+#     def __init__(self, image_folder: ImageFolder, transform_fn: callable) -> None:
+#         self.image_folder: ImageFolder = image_folder
+#         self.transform_fn: callable = transform_fn
+#
+#     def __getitem__(self, image_index: int):
+#         image, label = self.image_folder[image_index]
+#         transformed_image = self.transform_fn(image)
+#         return transformed_image, label
+# def pretrained_transform_fn(image: Image, model_code: str = "google/vit-base-patch16-224"):
+#     feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name_or_path=model_code)
+#     return feature_extractor(image)
+#
 
-    def __getitem__(self, image_index: int):
-        image, label = self.image_folder[image_index]
-        transformed_image = self.transform_fn(image)
-        return transformed_image, label
-
-
-def pretrained_transform_fn(image: Image, model_code: str = "google/vit-base-patch16-224"):
-    feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name_or_path=model_code)
-    return feature_extractor(image)
+def select_transforms(path: Path, new_image_size: tuple[int, int]) -> list[object]:
     
+    if path == TRAIN_DATA_DIR:
+        return [
+            RandomHorizontalFlip(), RandomRotation(degrees=45), ToTensor(), Resize(size=new_image_size)
+        ]   
 
-def make_full_dataset(path: Path, pretrained: bool) -> Dataset:
+    elif path == VAL_DATA_DIR or path == TEST_DATA_DIR:
+        return [ToTensor(), Resize(size=new_image_size)]
+
+
+def make_full_dataset(path: Path) -> Dataset:
     """
-    Initialise the transforms that will be used for data
-    augmentation of our images. The exact transforms that will 
-    be used depend on whether the model is being trained, validated 
-    during training, or tested after training.
+    Initialise the transforms that will be used for data augmentation of our images. The exact transforms that will 
+    be used depend on whether the model is being trained, validated during training, or tested after training.
 
-    Torchvision's ImageFolder class expects images to be in 
-    directories, one for each class (which is awfully convenient).
-    We can set up a Dataloader for the training, validation, and 
-    testing data.
+    Torchvision's ImageFolder class expects images to be in directories, one for each class (which is awfully convenient).
+    We can set up a Dataloader for the training, validation, and testing data.
 
     Args:
         path: the location of the folder containing the images. This
@@ -45,20 +50,10 @@ def make_full_dataset(path: Path, pretrained: bool) -> Dataset:
         DataLoader: a Dataloader object which contains the training/validation/testing data.
     """
     new_size = (image_config.resized_image_width, image_config.resized_image_height)
- 
-    if pretrained:
-        dataset = DatasetForPretrainedModels(image_folder=ImageFolder(root=path), transform_fn=pretrained_transform_fn)
-    else:
-        if path == TRAIN_DATA_DIR:
-            transforms = [
-                RandomHorizontalFlip(), RandomRotation(degrees=45), RandomAutocontrast(), ToTensor(), Resize(size=new_size)
-            ]   
-        elif path == VAL_DATA_DIR or path == TEST_DATA_DIR:
-            transforms = [ToTensor(), Resize(size=new_size)]
-
-        composed_transforms = Compose(transforms=transforms)
-        dataset = ImageFolder(root=path, transform=composed_transforms)
-        
+    transforms = select_transforms(path=path, new_image_size=new_size) 
+    composed_transforms = Compose(transforms=transforms)
+    dataset = ImageFolder(root=path, transform=composed_transforms)
+    
     return dataset
 
 
@@ -92,4 +87,3 @@ def split_data(
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
 
     return train_dataloader, val_dataloader, test_dataloader
-

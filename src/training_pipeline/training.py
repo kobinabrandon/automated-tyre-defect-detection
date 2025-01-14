@@ -11,7 +11,7 @@ from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy,
 
 from transformers import TrainingArguments, Trainer
 
-from src.setup.config import config
+from src.setup.config import model_config 
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR, LOGS_DIR, DATA_DIR
 
 from src.feature_pipeline.preprocessing import make_full_dataset, split_data
@@ -29,59 +29,55 @@ experiment = Experiment(
 )
 
 
-class PretrainedModelTrainer:
-    def __init__(self, model_name: str, batch_size: int):
-        self.model_name = model_name.lower()
-        self.batch_size = batch_size
+def train(
+    model_name: str,
+    learning_rate: float | None,
+    weight_decay: float | None,
+    momentum: float | None,
+    dropout: float | None,
+    optimizer_name: str | None,
+    tune_hyperparams: bool | None = True,
+    trials: int | None = 10,
+    batch_size: int = model_config.batch_size
+    ) -> None:
+    """
+    Train the requested model in either an untuned default state, or in the
+    most optimal tuned form that was obtained after the specified number of 
+    tuning trials.
 
-    def train(
-        self,
-        learning_rate: float | None,
-        weight_decay: float | None,
-        momentum: float | None,
-        dropout: float | None,
-        optimizer_name: str | None,
-        tune_hyperparams: bool | None = True,
-        trials: int | None = 10
-        ) -> None:
-        """
-        Train the requested model in either an untuned default state, or in the
-        most optimal tuned form that was obtained after the specified number of 
-        tuning trials.
+    Args:
+        batch_size: the batch size to be used during training.
+        learning_rate: the learning rate of the optimizer.
+        weight_decay: a regularization term that reduces the weights
+        num_epochs: the number of epochs that the model should be trained for.
+        dropout: the proportion of nodes that will be omitted.
+        optimizer_name: the name of the optimizer that is to be used.
+        momentum: the momentum coefficient used during stochastic gradient descent (SGD)
+        tune_hyperparams: a boolean that indicates whether hyperparameters are to be tuned.
+        trials: the number of optuna trials to run.
+    """
+    assert model_name in ["vit", "hybrid_vit", "beit"]
+    if not tune_hyperparams:
+        model_fn = get_pretrained_model(model_name=model_name)
+        
+        training_params = TrainingArguments(
+            output_dir=MODELS_DIR,
+            learning_rate=learning_rate,
+            per_device_train_batch_size=batch_size,
+            per_device_eval_batch_size=batch_size,
+            num_train_epochs=10,
+            logging_dir=LOGS_DIR,
+            logging_strategy="epoch",
+            eval_strategy="epoch",
+            save_strategy="epoch"
+        )
 
-        Args:
-            batch_size: the batch size to be used during training.
-            learning_rate: the learning rate of the optimizer.
-            weight_decay: a regularization term that reduces the weights
-            num_epochs: the number of epochs that the model should be trained for.
-            dropout: the proportion of nodes that will be omitted.
-            optimizer_name: the name of the optimizer that is to be used.
-            momentum: the momentum coefficient used during stochastic gradient descent (SGD)
-            tune_hyperparams: a boolean that indicates whether hyperparameters are to be tuned.
-            trials: the number of optuna trials to run.
-        """
-        assert model_name in ["vit", "hybrid_vit", "beit"]
-        if not tune_hyperparams:
-            model_fn = get_pretrained_model(model_name=self.model_name)
-            
-            training_params = TrainingArguments(
-                output_dir=MODELS_DIR,
-                learning_rate=learning_rate,
-                per_device_train_batch_size=self.batch_size,
-                per_device_eval_batch_size=self.batch_size,
-                num_train_epochs=10,
-                logging_dir=LOGS_DIR,
-                logging_strategy="epoch",
-                eval_strategy="epoch",
-                save_strategy="epoch"
-            )
+        trainer = Trainer(model=model_fn, args=training_params)
+        trainer.train()
 
-            trainer = Trainer(model=model_fn, args=training_params)
-            trainer.train()
-
-        else:
-            logger.info("Finding optimal values of hyperparameters")
-            perform_tuning(model_name=self.model_name, trials=trials, batch_size=self.batch_size, experiment=experiment)
+    else:
+        logger.info("Finding optimal values of hyperparameters")
+        perform_tuning(model_name=model_name, trials=trials, batch_size=batch_size, experiment=experiment)
 
 
 # class ToyModelTrainer:

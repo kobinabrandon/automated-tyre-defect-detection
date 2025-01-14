@@ -31,8 +31,6 @@ class DataConfig(BaseSettings):
 
 
 class ImageConfig(BaseSettings):
-
-    _ = SettingsConfigDict(env_file=PARENT_DIR/".env", env_file_encoding="utf-8", extra="allow")
     resized_image_width: int = 512
     resized_image_height: int = 512
 
@@ -47,7 +45,15 @@ class EnvConfig(BaseSettings):
         comet_project_name: str = os.environ["COMET_PROJECT_NAME"]
 
 
+class ModelConfig(BaseSettings):
+    batch_size: int = 32
+    vit_base: str = "google/vit-base-patch16-224"
+    vit_hybrid: str = "googlevit-hybrid-base-bit-384"
+
+
+
 env = EnvConfig()
 data_config = DataConfig()
 image_config = ImageConfig()
+model_config = ModelConfig()
 
