@@ -1,5 +1,3 @@
-import os 
-
 from pathlib import Path
 from PIL.Image import Image
 from torchvision.datasets import ImageFolder
@@ -7,14 +5,14 @@ from transformers.models.auto import AutoFeatureExtractor
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFlip, RandomRotation, RandomAutocontrast
 
-from src.setup.config import config
+from src.setup.config import image_config 
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR, DATA_DIR
 
 
 class DatasetForPretrainedMode(Dataset):
     def __init__(self, image_folder: ImageFolder, transform_fn: callable) -> None:
-        self.image_folder = image_folder
-        self.transform_fn = transform_fn
+        self.image_folder: ImageFolder = image_folder
+        self.transform_fn: callable = transform_fn
 
     def __getitem__(self, image_index: int):
         image, label = self.image_folder[image_index]
@@ -46,7 +44,7 @@ def make_full_dataset(path: Path, pretrained: bool) -> Dataset:
     Returns:
         DataLoader: a Dataloader object which contains the training/validation/testing data.
     """
-    new_size = (config.resized_image_width, config.resized_image_height)
+    new_size = (image_config.resized_image_width, image_config.resized_image_height)
  
     if pretrained:
         dataset = DatasetForPretrainedModels(image_folder=ImageFolder(root=path), transform_fn=pretrained_transform_fn)
@@ -94,3 +92,4 @@ def split_data(
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
 
     return train_dataloader, val_dataloader, test_dataloader
+

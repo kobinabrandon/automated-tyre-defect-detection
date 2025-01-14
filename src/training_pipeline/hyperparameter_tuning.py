@@ -12,8 +12,7 @@ from optuna.visualization import plot_param_importances
 from src.setup.config import config
 from src.setup.paths import TRIALS_DIR
 
-from src.training_pipeline.pretrained_models import get_pretrained_model
-from src.training_pipeline.toy_models import BaseCNN, BiggerCNN, DynamicCNN, ResNet, get_resnet
+from src.training_pipeline.models import get_pretrained_model
 from src.training_pipeline.training import ToyModelTrainer, PretrainedModelTrainer
 
 
@@ -116,10 +115,12 @@ def perform_tuning(model_name: str, trials: int, experiment: Experiment):
         weight_decay = trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True)
 
         if model_name.lower() in ["vit", "beit", "hybrid_vit"]:
+            # ["vit", "hybrid_vit", "beit"] 
             model_fn = get_pretrained_model(model_name=model_name.lower())
-        elif model_name.lower() in ["base", "dynamic", "bigger"]:
-            model_fn = get_toy_tuning_candidate(model_name=model_name.lower(), trial=trial)
 
+        # elif model_name.lower() in ["base", "dynamic", "bigger"]:
+        #     model_fn = get_toy_tuning_candidate(model_name=model_name.lower(), trial=trial)
+        #
             criterion = CrossEntropyLoss()
             optimizer_choice = trial.suggest_categorical(name="optimizer", choices=["Adam", "SGD", "RMSProp"])
         
@@ -149,37 +150,4 @@ def perform_tuning(model_name: str, trials: int, experiment: Experiment):
     best_trials._log_with_comet()
 
 
-def get_toy_tuning_candidate(model_name: str, trial: trial.Trial) -> callable:
 
-    if model_name.lower() == "base":
-        return BaseCNN()
-
-    elif model_name.lower() == "dynamic":
-        conv_layers = trial.suggest_int(name="num_conv_layers", low=2, high=6)
-        out_channels = trial.suggest_int(name="out_channels", low=16, high=96)
-        dropout = trial.suggest_int(name="dropout", low=0.05, high=0.5)
-        prev_out_channels = 16
-
-        layer_configs = []       
-        for _ in range(conv_layers):
-            stride = trial.suggest_int(name="stride", low=1, high=3)
-            padding = "same" if stride == 1 else "valid"  # "Same" padding is not supported for strided convolutions
-
-            conv_config = {
-                "type": "conv", "out_channels": prev_out_channels, "kernel_size": 3, "stride": stride, "pooling": True,
-                "padding": padding
-            }
-
-            layer_configs.append(conv_config)
-            prev_out_channels*=2  # Arbitrary choice
-
-        return DynamicCNN(in_channels=3, num_classes=num_classes, layer_configs=layer_configs, dropout=dropout)
-
-    elif model_name.lower() == "bigger":
-        return BiggerCNN(in_channels=3, num_classes=num_classes, tune_hyperparams=True, trial=trial)
-
-    elif model_name.lower() in ["resnet50", "resnet101", "resnet152"]:
-        return get_resnet(model_name=model_name.lower())
-
-    elif model_name in ["vit", "hybrid_vit", "beit"]: 
-        return get_pretrained_model(model_name=model_name)

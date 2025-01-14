@@ -29,6 +29,7 @@ class DataConfig(BaseSettings):
 
         num_classes: int = get_num_classes(path=RAW_DATA_DIR / file_name)
 
+
 class ImageConfig(BaseSettings):
 
     _ = SettingsConfigDict(env_file=PARENT_DIR/".env", env_file_encoding="utf-8", extra="allow")
@@ -41,9 +42,9 @@ class EnvConfig(BaseSettings):
     _ = SettingsConfigDict(env_file=PARENT_DIR/".env", env_file_encoding="utf-8", extra="allow")
 
     if load_dotenv(find_dotenv()):
-        comet_api_key: str
-        comet_project_name: str
-        comet_workspace: str
+        comet_api_key: str = os.environ["COMET_API_KEY"]
+        comet_workspace: str = os.environ["COMET_WORKSPACE"]
+        comet_project_name: str = os.environ["COMET_PROJECT_NAME"]
 
 
 env = EnvConfig()
