@@ -49,7 +49,7 @@ class ModelConfig(BaseSettings):
     batch_size: int = 32
     vit_base: str = "google/vit-base-patch16-224"
     vit_hybrid: str = "googlevit-hybrid-base-bit-384"
-
+    beit_base: str = "microsoft/beit-base-patch16-224"
 
 
 env = EnvConfig()

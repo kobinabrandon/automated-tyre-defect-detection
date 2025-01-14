@@ -1,40 +1,45 @@
+from concurrent.futures import process
+import torch 
 from pathlib import Path
+from typing import Callable
 from PIL.Image import Image
-from torchvision.datasets import ImageFolder
-from transformers.models.auto import AutoFeatureExtractor
-from torch.utils.data import DataLoader, Dataset, random_split
-from torchvision.transforms import Compose, ToTensor, Resize, RandomHorizontalFlip, RandomRotation, transforms
 
-from src.setup.config import image_config 
+from transformers import AutoImageProcessor
+from torchvision.datasets import ImageFolder
+from torchvision.transforms import Compose, Lambda, ToTensor, Resize, RandomHorizontalFlip, RandomRotation
+
+from torch.utils.data import DataLoader,  random_split
+from torch.utils.data.dataset import Subset
+
+
+from src.setup.config import model_config, image_config 
+from src.training_pipeline.models import get_model_processor
 from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR, DATA_DIR
 
 
-# class DatasetForPretrainedMode(Dataset):
-#     def __init__(self, image_folder: ImageFolder, transform_fn: callable) -> None:
-#         self.image_folder: ImageFolder = image_folder
-#         self.transform_fn: callable = transform_fn
-#
-#     def __getitem__(self, image_index: int):
-#         image, label = self.image_folder[image_index]
-#         transformed_image = self.transform_fn(image)
-#         return transformed_image, label
-# def pretrained_transform_fn(image: Image, model_code: str = "google/vit-base-patch16-224"):
-#     feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name_or_path=model_code)
-#     return feature_extractor(image)
-#
+def process_image(model_name: str, image: Image) -> torch.Tensor:
 
-def select_transforms(path: Path, new_image_size: tuple[int, int]) -> list[object]:
+    processor = get_model_processor(model_name=model_name) 
+    processed_image: dict[str, torch.Tensor] = processor(image, return_tensors="pt")
+    return processed_image["pixel_values"].squeeze(0)
+
+
+def get_custom_transforms(path: Path, new_image_size: tuple[int, int]) -> Callable[[Image], Image]:
     
+    assert path in [TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR]; "Provide paths to either the training, validation, or test data" 
     if path == TRAIN_DATA_DIR:
-        return [
-            RandomHorizontalFlip(), RandomRotation(degrees=45), ToTensor(), Resize(size=new_image_size)
-        ]   
 
-    elif path == VAL_DATA_DIR or path == TEST_DATA_DIR:
-        return [ToTensor(), Resize(size=new_image_size)]
+        return Compose([
+            RandomHorizontalFlip(), RandomRotation(degrees=45), ToTensor(), Resize(size=new_image_size), Lambda(lambda img: process_image(img))
+        ])
+
+    else: 
+        return Compose([
+            ToTensor(), Resize(size=new_image_size), Lambda(lambda img: process_image(img))
+        ])
 
 
-def make_full_dataset(path: Path) -> Dataset:
+def make_full_dataset(path: Path, augment_images: bool, model_name: str | None) -> ImageFolder:
     """
     Initialise the transforms that will be used for data augmentation of our images. The exact transforms that will 
     be used depend on whether the model is being trained, validated during training, or tested after training.
@@ -43,26 +48,33 @@ def make_full_dataset(path: Path) -> Dataset:
     We can set up a Dataloader for the training, validation, and testing data.
 
     Args:
-        path: the location of the folder containing the images. This
-              will determine which transforms will be applied
+        path: the location of the folder containing the images. This will determine which transforms will be applied
 
     Returns:
         DataLoader: a Dataloader object which contains the training/validation/testing data.
     """
     new_size = (image_config.resized_image_width, image_config.resized_image_height)
-    transforms = select_transforms(path=path, new_image_size=new_size) 
-    composed_transforms = Compose(transforms=transforms)
-    dataset = ImageFolder(root=path, transform=composed_transforms)
+
+    if not augment_images:
+        processor = get_model_processor(model_name=model_name) 
+
+        transforms = Compose([
+            Lambda(lambda img: processor(img, return_tensors="pt"))
+        ])
+
+    else:
+        transforms = get_custom_transforms(path=path, new_image_size=new_size) 
+        
+    return ImageFolder(root=path, transform=transforms)
     
-    return dataset
 
 
 def split_data(
-    dataset: Dataset,
+    images: ImageFolder, 
     train_ratio: float = 0.7, 
     val_ratio: float = 0.15, 
-    batch_size: int = 0.15
-    ) -> tuple[DataLoader, DataLoader, DataLoader]:
+    batch_size: float = 0.15
+    ) -> tuple[DataLoader[ImageFolder], DataLoader[ImageFolder], DataLoader[ImageFolder]]:
     """
 
     Args:
@@ -75,15 +87,16 @@ def split_data(
     Returns:
         tuple[DataLoader, DataLoader, DataLoader]: dataloaders for each data split
     """
-    number_of_images = len(dataset)
+    number_of_images: int = len(images)
 
-    train_size = int(train_ratio(number_of_images))
-    val_size = int(val_ratio(number_of_images))
+    train_size = int(train_ratio * number_of_images)
+    val_size = int(val_ratio * number_of_images)
     test_size = number_of_images - train_size - val_size
 
-    train_dataset, val_dataset, test_dataset = random_split(dataset=dataset, lengths=[train_size, val_size, test_size])    
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
-    val_dataloader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=True)
-    test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
+    train_dataset, val_dataset, test_dataset = random_split(dataset=images, lengths=[train_size, val_size, test_size])    
+    train_dataloader: DataLoader[ImageFolder] = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+    val_dataloader: DataLoader[ImageFolder] = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=True)
+    test_dataloader: DataLoader[ImageFolder] = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
 
     return train_dataloader, val_dataloader, test_dataloader
+
