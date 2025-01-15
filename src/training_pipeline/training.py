@@ -1,83 +1,107 @@
+from PIL.Image import Image
 from comet_ml import Experiment  # For some reason, to log to CometML automatically, we must import comet_ml before torch
 
 import torch
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from loguru import logger
 
 from torch.nn import CrossEntropyLoss
 from torch.optim import Adam, SGD, RMSprop
 from torch.optim.optimizer import Optimizer
-from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
 
-from transformers import TrainingArguments, Trainer
-
-from src.setup.config import model_config 
-from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR, LOGS_DIR, DATA_DIR
-
-from src.feature_pipeline.preprocessing import make_full_dataset, split_data
-from src.training_pipeline.hyperparameter_tuning import perform_tuning, get_toy_tuning_candidate
-from src.training_pipeline.models import get_pretrained_model
-
-
-num_classes = config.num_classes
-
-experiment = Experiment(
-    api_key=config.comet_api_key,
-    project_name=config.comet_project_name,
-    workspace=config.comet_workspace,
-    log_code=False
+from transformers import (
+    Trainer,
+    TrainingArguments,
+    ViTForImageClassification, 
+    ViTHybridForImageClassification, 
+    BeitForImageClassification, 
+    AutoImageProcessor 
 )
 
 
-def train(
-    model_name: str,
-    learning_rate: float | None,
-    weight_decay: float | None,
-    momentum: float | None,
-    dropout: float | None,
-    optimizer_name: str | None,
-    tune_hyperparams: bool | None = True,
-    trials: int | None = 10,
-    batch_size: int = model_config.batch_size
-    ) -> None:
-    """
-    Train the requested model in either an untuned default state, or in the
-    most optimal tuned form that was obtained after the specified number of 
-    tuning trials.
+from torchvision.datasets import ImageFolder
+from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
 
-    Args:
-        batch_size: the batch size to be used during training.
-        learning_rate: the learning rate of the optimizer.
-        weight_decay: a regularization term that reduces the weights
-        num_epochs: the number of epochs that the model should be trained for.
-        dropout: the proportion of nodes that will be omitted.
-        optimizer_name: the name of the optimizer that is to be used.
-        momentum: the momentum coefficient used during stochastic gradient descent (SGD)
-        tune_hyperparams: a boolean that indicates whether hyperparameters are to be tuned.
-        trials: the number of optuna trials to run.
-    """
-    assert model_name in ["vit", "hybrid_vit", "beit"]
-    if not tune_hyperparams:
-        model_fn = get_pretrained_model(model_name=model_name)
+from src.setup.config import model_config, env, data_config 
+from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, MODELS_DIR, LOGS_DIR, DATA_DIR
+
+from src.feature_pipeline.preprocessing import make_full_dataset, split_data, prepare_data
+from src.training_pipeline.models import get_pretrained_model
+
+
+num_classes = data_config.num_classes
+
+experiment = Experiment(
+    api_key=env.comet_api_key,
+    project_name=env.comet_project_name,
+    workspace=env.comet_workspace,
+    log_code=False
+)
+
+class HFLoop:
+    def __init__(
+        self, 
+        model_name: str, 
+        epochs: int,
+        learning_rate: float, 
+        batch_size: int = model_config.batch_size
+    ) -> None:
+        self.epochs: int = epochs 
+        self.model_name: str = model_name
+        self.learning_rate: float = learning_rate
+        self.batch_size: int = batch_size
+
+        self.datasets: tuple[DataLoader[ImageFolder], DataLoader[ImageFolder], DataLoader[ImageFolder]] = prepare_data()
+        self.training_set: DataLoader[ImageFolder] = self.datasets[0]
+        self.validation_set: DataLoader[ImageFolder] = self.datasets[1]
+    
+    def train(self):
+        """
+        Train the requested model in either an untuned default state, or in the
+        most optimal tuned form that was obtained after the specified number of 
+        tuning trials.
+
+        Args:
+            batch_size: the batch size to be used during training.
+            learning_rate: the learning rate of the optimizer.
+            num_epochs: the number of epochs that the model should be trained for.
+            optimizer_name: the name of the optimizer that is to be used.
+            tune_hyperparams: a boolean that indicates whether hyperparameters are to be tuned.
+            trials: the number of optuna trials to run.
+        """
+        model_fn: ViTForImageClassification | ViTHybridForImageClassification | BeitForImageClassification = get_pretrained_model(model_name=self.model_name)
         
         training_params = TrainingArguments(
-            output_dir=MODELS_DIR,
-            learning_rate=learning_rate,
-            per_device_train_batch_size=batch_size,
-            per_device_eval_batch_size=batch_size,
-            num_train_epochs=10,
-            logging_dir=LOGS_DIR,
+            output_dir=str(MODELS_DIR),
+            learning_rate=self.learning_rate,
+            per_device_train_batch_size=self.batch_size,
+            per_device_eval_batch_size=self.batch_size,
+            num_train_epochs=self.epochs,
+            logging_dir=str(LOGS_DIR),
             logging_strategy="epoch",
             eval_strategy="epoch",
             save_strategy="epoch"
         )
 
-        trainer = Trainer(model=model_fn, args=training_params)
+        trainer = Trainer(
+            model=model_fn, 
+            args=training_params, 
+            train_dataset=self.training_set, 
+            eval_dataset=self.validation_set
+        )
+
         trainer.train()
 
-    else:
-        logger.info("Finding optimal values of hyperparameters")
-        perform_tuning(model_name=model_name, trials=trials, batch_size=batch_size, experiment=experiment)
+
+# logger.info("Finding optimal values of hyperparameters")
+# perform_tuning(model_name=model_name, trials=5, experiment=experiment)
+#
+
+if __name__ == "__main__":
+    loop = HFLoop(model_name=model_config.vit_base, epochs=5, learning_rate=0.1)    
+    loop.train()
+    
 
 
 # class ToyModelTrainer:

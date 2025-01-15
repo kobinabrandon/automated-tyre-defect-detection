@@ -1,4 +1,3 @@
-from concurrent.futures import process
 import torch 
 from pathlib import Path
 from typing import Callable
@@ -12,13 +11,18 @@ from torch.utils.data import DataLoader,  random_split
 from torch.utils.data.dataset import Subset
 
 
-from src.setup.config import model_config, image_config 
+from src.setup.config import model_config, data_config, image_config 
 from src.training_pipeline.models import get_model_processor
-from src.setup.paths import TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR, DATA_DIR
+from src.setup.paths import RAW_DATA_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR, DATA_DIR
+
+
+def prepare_data() -> tuple[DataLoader[ImageFolder], DataLoader[ImageFolder], DataLoader[ImageFolder]]:
+    
+    images: ImageFolder = make_full_dataset(path=RAW_DATA_DIR/data_config.file_name, augment_images=False, model_name=model_config.vit_base)
+    return split_data(images=images)
 
 
 def process_image(model_name: str, image: Image) -> torch.Tensor:
-
     processor = get_model_processor(model_name=model_name) 
     processed_image: dict[str, torch.Tensor] = processor(image, return_tensors="pt")
     return processed_image["pixel_values"].squeeze(0)
@@ -68,12 +72,11 @@ def make_full_dataset(path: Path, augment_images: bool, model_name: str | None) 
     return ImageFolder(root=path, transform=transforms)
     
 
-
 def split_data(
     images: ImageFolder, 
     train_ratio: float = 0.7, 
     val_ratio: float = 0.15, 
-    batch_size: float = 0.15
+    batch_size: int = 10 
     ) -> tuple[DataLoader[ImageFolder], DataLoader[ImageFolder], DataLoader[ImageFolder]]:
     """
 
@@ -82,7 +85,7 @@ def split_data(
         val_ratio (float): the fraction of the data that is to be used for validation
         dataset (Dataset): the fraction of the data that is to be used for testing
         batch_size: the size of the batches that the dataset will be divided into.
-        dataset (Dataset): the full Dataset object to be divided up.
+        images (ImageFolder): the full Dataset object to be divided up.
 
     Returns:
         tuple[DataLoader, DataLoader, DataLoader]: dataloaders for each data split

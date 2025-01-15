@@ -23,11 +23,10 @@ class DataConfig(BaseSettings):
     _ = SettingsConfigDict(env_file=PARENT_DIR/".env", env_file_encoding="utf-8", extra="allow")
 
     if load_dotenv(find_dotenv()):
-        url: str = "https://prod-dcd-datasets-cache-zipfiles.s3.eu-west-1.amazonaws.com/bn7ch8tvyp-1.zip" 
         file_name: str = os.environ["FILE_NAME"]
         zipfile_name: str = f"{file_name}.zip" 
-
         num_classes: int = get_num_classes(path=RAW_DATA_DIR / file_name)
+        url: str = "https://prod-dcd-datasets-cache-zipfiles.s3.eu-west-1.amazonaws.com/bn7ch8tvyp-1.zip" 
 
 
 class ImageConfig(BaseSettings):
@@ -48,7 +47,7 @@ class EnvConfig(BaseSettings):
 class ModelConfig(BaseSettings):
     batch_size: int = 32
     vit_base: str = "google/vit-base-patch16-224"
-    vit_hybrid: str = "googlevit-hybrid-base-bit-384"
+    vit_hybrid: str = "google/vit-hybrid-base-bit-384"
     beit_base: str = "microsoft/beit-base-patch16-224"
 
 

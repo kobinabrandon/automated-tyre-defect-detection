@@ -115,12 +115,7 @@ def perform_tuning(model_name: str, trials: int, experiment: Experiment):
         weight_decay = trial.suggest_float(name="weight_decay", low = 0.001, high = 0.08, log=True)
 
         if model_name.lower() in ["vit", "beit", "hybrid_vit"]:
-            # ["vit", "hybrid_vit", "beit"] 
             model_fn = get_pretrained_model(model_name=model_name.lower())
-
-        # elif model_name.lower() in ["base", "dynamic", "bigger"]:
-        #     model_fn = get_toy_tuning_candidate(model_name=model_name.lower(), trial=trial)
-        #
             criterion = CrossEntropyLoss()
             optimizer_choice = trial.suggest_categorical(name="optimizer", choices=["Adam", "SGD", "RMSProp"])
         
