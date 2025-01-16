@@ -1,47 +1,19 @@
-import torch 
 from pathlib import Path
+from loguru import logger 
 from typing import Callable
 from PIL.Image import Image
 
-from transformers import AutoImageProcessor
 from torch.utils.data import DataLoader,  random_split
 
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, Lambda, ToTensor, Resize, RandomHorizontalFlip, RandomRotation
 
 from src.training_pipeline.models import get_model_processor
-from src.setup.config import model_config, data_config, image_config 
-from src.setup.paths import RAW_DATA_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR, DATA_DIR
+from src.setup.config import process_config, data_config, image_config 
+from src.setup.paths import RAW_DATA_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR
 
 
-def prepare_data() -> tuple[DataLoader[ImageFolder], DataLoader[ImageFolder], DataLoader[ImageFolder]]:
-    
-    images: ImageFolder = make_full_dataset(path=RAW_DATA_DIR/data_config.file_name, augment_images=False, model_name=model_config.vit_base)
-    return split_data(images=images)
-
-
-def process_image(model_name: str, image: Image) -> torch.Tensor:
-    processor = get_model_processor(model_name=model_name) 
-    processed_image: dict[str, torch.Tensor] = processor(image, return_tensors="pt")
-    return processed_image["pixel_values"].squeeze(0)
-
-
-def get_custom_transforms(path: Path, new_image_size: tuple[int, int]) -> Callable[[Image], Image]:
-    
-    assert path in [TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR]; "Provide paths to either the training, validation, or test data" 
-    if path == TRAIN_DATA_DIR:
-
-        return Compose([
-            RandomHorizontalFlip(), RandomRotation(degrees=45), ToTensor(), Resize(size=new_image_size), Lambda(lambda img: process_image(img))
-        ])
-
-    else: 
-        return Compose([
-            ToTensor(), Resize(size=new_image_size), Lambda(lambda img: process_image(img))
-        ])
-
-
-def make_full_dataset(path: Path, augment_images: bool, model_name: str | None) -> ImageFolder:
+def prepare_images(augment_images: bool, model_name: str, path: Path = RAW_DATA_DIR/data_config.file_name) -> ImageFolder:
     """
     Initialise the transforms that will be used for data augmentation of our images. The exact transforms that will 
     be used depend on whether the model is being trained, validated during training, or tested after training.
@@ -61,7 +33,9 @@ def make_full_dataset(path: Path, augment_images: bool, model_name: str | None) 
         processor = get_model_processor(model_name=model_name) 
 
         transforms = Compose([
-            Lambda(lambda img: processor(img, return_tensors="pt"))
+            Lambda(
+                lambda img: processor(img, return_tensors="pt")
+            )
         ])
 
     else:
@@ -72,9 +46,9 @@ def make_full_dataset(path: Path, augment_images: bool, model_name: str | None) 
 
 def split_data(
     images: ImageFolder, 
-    train_ratio: float = 0.7, 
-    val_ratio: float = 0.15, 
-    batch_size: int = 10 
+    train_ratio: float = process_config.train_ratio, 
+    val_ratio: float = process_config.val_ratio, 
+    batch_size: int = process_config.batch_size 
     ) -> tuple[DataLoader[ImageFolder], DataLoader[ImageFolder], DataLoader[ImageFolder]]:
     """
 
@@ -94,10 +68,34 @@ def split_data(
     val_size = int(val_ratio * number_of_images)
     test_size = number_of_images - train_size - val_size
 
+    logger.info("Performing train-validation-test split") 
     train_dataset, val_dataset, test_dataset = random_split(dataset=images, lengths=[train_size, val_size, test_size])    
     train_dataloader: DataLoader[ImageFolder] = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
     val_dataloader: DataLoader[ImageFolder] = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader: DataLoader[ImageFolder] = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
 
     return train_dataloader, val_dataloader, test_dataloader
+
+
+def get_custom_transforms(path: Path, new_image_size: tuple[int, int]) -> Callable[[Image], Image]:
+    
+    assert path in [TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR]; "Provide paths to either the training, validation, or test data" 
+    if path == TRAIN_DATA_DIR:
+
+        return Compose([
+            RandomHorizontalFlip(), RandomRotation(degrees=45), ToTensor(), Resize(size=new_image_size), Lambda(lambda img: process_image(img))
+        ])
+
+    else: 
+        return Compose([
+            ToTensor(), Resize(size=new_image_size), Lambda(lambda img: process_image(img))
+        ])
+
+
+# def process_image(model_name: str, image: torch.Tensor) -> torch.Tensor:
+#     processor = get_model_processor(model_name=model_name) 
+#     processed_image: dict[str, torch.Tensor] = processor(image, return_tensors="pt")
+#     breakpoint()
+#     return processed_image["pixel_values"].squeeze(0)
+#
 

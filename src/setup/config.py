@@ -51,8 +51,16 @@ class ModelConfig(BaseSettings):
     beit_base: str = "microsoft/beit-base-patch16-224"
 
 
+class ProcessingConfig(BaseSettings):
+    batch_size: int = 10
+    train_ratio: float = 0.7
+    val_ratio: float = 0.15
+    test_ratio: float = 0.15
+
+
 env = EnvConfig()
 data_config = DataConfig()
 image_config = ImageConfig()
 model_config = ModelConfig()
+process_config = ProcessingConfig()
 

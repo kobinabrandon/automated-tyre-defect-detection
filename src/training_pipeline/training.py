@@ -24,8 +24,8 @@ from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy,
 
 from src.setup.paths import MODELS_DIR, LOGS_DIR
 from src.setup.config import model_config, env, data_config 
-from src.feature_pipeline.preprocessing import prepare_data
-from src.training_pipeline.models import get_pretrained_model
+from src.training_pipeline.models import get_model_processor, get_pretrained_model
+from src.feature_pipeline.preprocessing import prepare_images, split_data
 
 
 num_classes = data_config.num_classes
@@ -36,6 +36,16 @@ experiment = Experiment(
     workspace=env.comet_workspace,
     log_code=False
 )
+
+
+def fix_dimension(images: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    
+    adjusted_tensor: torch.Tensor = images["pixel_values"].squeeze(1)
+
+    return {
+        "pixel_values":adjusted_tensor 
+    }
+
 
 
 class CustomLoop:
@@ -74,8 +84,9 @@ class CustomLoop:
         self.optimizer_name: str = optimizer_name   
         self.tune_hyperparams: bool = tune_hyperparams
         self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        self.datasets: tuple[DataLoader[ImageFolder], DataLoader[ImageFolder], DataLoader[ImageFolder]] = prepare_data()
+    
+        self.images: ImageFolder = prepare_images(model_name=model_name, augment_images=False)  
+        self.datasets: tuple[DataLoader[ImageFolder], DataLoader[ImageFolder], DataLoader[ImageFolder]] = split_data(images=self.images)
         self.train_dataloader: DataLoader[ImageFolder] = self.datasets[0]
         self.val_dataloader: DataLoader[ImageFolder] = self.datasets[1]
 
@@ -174,13 +185,16 @@ class CustomLoop:
             logger.info(f"Starting Epoch #{epoch}")
             model.train()  # Put model in training mode
             training_loss_total = 0.0  # Initialise training loss
+            processor = get_model_processor(model_name=self.model_name)
 
             for images, labels in tqdm(self.train_dataloader):
 
                 optimizer.zero_grad()  # Refresh gradients
                 images, labels = images.to(self.device), labels.to(self.device)
 
-                output = model.forward(images)
+                output = model(**fix_dimension(images))
+
+                breakpoint()
                 training_loss = criterion(output, labels)  # Calculate the training loss 
                 training_loss.backward()  # Calculate the gradient of the loss function
                 optimizer.step()  # Adjust weights and biases
@@ -201,9 +215,11 @@ class CustomLoop:
             with torch.no_grad():  # Initialise validation mode
 
                 for (images, labels) in self.val_dataloader:
-                    images, labels = images.to(self.device), labels.to(self.device)
+            
+                    inputs = processor(images=images, return_tensors="pt")
+                    inputs, labels = inputs.to(self.device), labels.to(self.device)
 
-                    output = model.forward(images)
+                    output = model(**images)
                     val_loss = criterion(output, labels).item()
                     val_loss_total += val_loss
 
@@ -234,7 +250,7 @@ class CustomLoop:
                     Average Validation Accuracy: {:.2f}, Average Validation Recall: {:.2f},\
                     Average Validation Precision: {:.2f}".format(
                         epoch + 1, 
-                        epochs, 
+                        self.epochs, 
                         training_loss_avg, 
                         val_loss_avg, 
                         val_accuracy_avg, 
