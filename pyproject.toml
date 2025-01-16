@@ -17,6 +17,7 @@ transformers = "^4.48.0"
 torchmetrics = "^1.6.1"
 joblib = "^1.4.2"
 accelerate = "^1.2.1"
+torch = "^2.5.1"
 
 [build-system]
 requires = ["poetry-core"]

@@ -18,13 +18,12 @@ from transformers import (
     BeitForImageClassification 
 )
 
-
 from torchvision.datasets import ImageFolder
 from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
 
 from src.setup.paths import MODELS_DIR, LOGS_DIR
 from src.setup.config import model_config, env, data_config 
-from src.training_pipeline.models import get_model_processor, get_pretrained_model
+from src.training_pipeline.models import get_image_processor, get_pretrained_model
 from src.feature_pipeline.preprocessing import prepare_images, split_data
 
 
@@ -38,14 +37,19 @@ experiment = Experiment(
 )
 
 
-def fix_dimension(images: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    
+def remove_extra_batch_dimension(images: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """
+    Removing an extra batch dimension that is created when the VitImageProcessor is applied to 
+    images in prior to the construction of the ImageFolder and DataLoader objects. 
+
+    Args:
+        images: a dictionary that consists of the "pixel_values" key and a corresponding tensor. 
+
+    Returns:
+        dict[str, torch.Tensor]: the same dictionary, except with the adjusted tensor. 
+    """
     adjusted_tensor: torch.Tensor = images["pixel_values"].squeeze(1)
-
-    return {
-        "pixel_values":adjusted_tensor 
-    }
-
+    return {"pixel_values": adjusted_tensor}
 
 
 class CustomLoop:
@@ -62,8 +66,10 @@ class CustomLoop:
         trials: int | None = 10
     ) -> None:
         """
-
+        A custom training loop that includes hyperparameter-tuning options. 
+        
         Args:
+            trials: the number of optuna trials to run.
             model_name: the name of the model to be trained 
             batch_size: the batch size to be used during training.
             learning_rate: the learning rate of the optimizer.
@@ -72,7 +78,6 @@ class CustomLoop:
             optimizer_name: the name of the optimizer to be used during training.  
             momentum: the momentum coefficient used during stochastic gradient descent (SGD)
             tune_hyperparams: a boolean that indicates whether hyperparameters are to be tuned.
-            trials: the number of optuna trials to run.
         """
         self.epochs: int = epochs 
         self.momentum: float = momentum
@@ -168,6 +173,11 @@ class CustomLoop:
         most optimal tuned form that was obtained after the specified number of tuning trials.
 
         Args:
+            model: the model being trained 
+            save: whether to save the model artifact as a pkl file.
+
+        Returns:
+            
        """
         logger.info("Collecting training data")
         train_iterator = iter(self.train_dataloader)
@@ -185,17 +195,15 @@ class CustomLoop:
             logger.info(f"Starting Epoch #{epoch}")
             model.train()  # Put model in training mode
             training_loss_total = 0.0  # Initialise training loss
-            processor = get_model_processor(model_name=self.model_name)
+            processor = get_image_processor(model_name=self.model_name)
 
             for images, labels in tqdm(self.train_dataloader):
 
                 optimizer.zero_grad()  # Refresh gradients
                 images, labels = images.to(self.device), labels.to(self.device)
+                output = model(**remove_extra_batch_dimension(images))
 
-                output = model(**fix_dimension(images))
-
-                breakpoint()
-                training_loss = criterion(output, labels)  # Calculate the training loss 
+                training_loss = criterion(output.logits, labels)  # Calculate the training loss 
                 training_loss.backward()  # Calculate the gradient of the loss function
                 optimizer.step()  # Adjust weights and biases
                 training_loss_total += training_loss.item()
@@ -215,12 +223,11 @@ class CustomLoop:
             with torch.no_grad():  # Initialise validation mode
 
                 for (images, labels) in self.val_dataloader:
-            
-                    inputs = processor(images=images, return_tensors="pt")
-                    inputs, labels = inputs.to(self.device), labels.to(self.device)
 
-                    output = model(**images)
-                    val_loss = criterion(output, labels).item()
+                    images, labels = images.to(self.device), labels.to(self.device)
+                    output = model(**remove_extra_batch_dimension(images))
+
+                    val_loss = criterion(output.logits, labels).item()
                     val_loss_total += val_loss
 
                     _, predictions = torch.max(input=output, dim=1)
@@ -340,7 +347,6 @@ if __name__ == "__main__":
     if args.custom:
         trainer = CustomLoop()
         trainer.train()
-
     else:
         trainer = HFLoop(model_name=model_config.vit_base, epochs=5, learning_rate=0.1)    
         trainer.train()
