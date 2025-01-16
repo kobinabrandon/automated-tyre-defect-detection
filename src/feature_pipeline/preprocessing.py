@@ -4,15 +4,13 @@ from typing import Callable
 from PIL.Image import Image
 
 from transformers import AutoImageProcessor
+from torch.utils.data import DataLoader,  random_split
+
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, Lambda, ToTensor, Resize, RandomHorizontalFlip, RandomRotation
 
-from torch.utils.data import DataLoader,  random_split
-from torch.utils.data.dataset import Subset
-
-
-from src.setup.config import model_config, data_config, image_config 
 from src.training_pipeline.models import get_model_processor
+from src.setup.config import model_config, data_config, image_config 
 from src.setup.paths import RAW_DATA_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR, DATA_DIR
 
 
