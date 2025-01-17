@@ -19,7 +19,6 @@ def get_num_classes(path: Path) -> int:
 
 
 class DataConfig(BaseSettings):
-
     _ = SettingsConfigDict(env_file=PARENT_DIR/".env", env_file_encoding="utf-8", extra="allow")
 
     if load_dotenv(find_dotenv()):
@@ -35,7 +34,6 @@ class ImageConfig(BaseSettings):
 
 
 class EnvConfig(BaseSettings):
-
     _ = SettingsConfigDict(env_file=PARENT_DIR/".env", env_file_encoding="utf-8", extra="allow")
 
     if load_dotenv(find_dotenv()):

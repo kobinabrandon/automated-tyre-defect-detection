@@ -16,8 +16,8 @@ from transformers import ViTForImageClassification, ViTHybridForImageClassificat
 
 from src.setup.paths import MODELS_DIR
 from src.setup.config import model_config, env, data_config 
-from src.training_pipeline.models import get_image_processor, get_pretrained_model
 from src.feature_pipeline.preprocessing import prepare_images, split_data
+from src.training_pipeline.models import get_image_processor, get_pretrained_model
 
 
 num_classes = data_config.num_classes
@@ -32,7 +32,7 @@ experiment = Experiment(
 
 def remove_extra_batch_dimension(images: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     """
-    Removing an extra batch dimension that is created when the VitImageProcessor is applied to 
+    Remove the extra batch dimension that is created when the VitImageProcessor is applied to 
     images in prior to the construction of the ImageFolder and DataLoader objects. 
 
     Args:
@@ -50,11 +50,10 @@ class CustomLoop:
         self,
         model_name: str = model_config.vit_base,
         epochs: int = 10, 
+        momentum: float = 0.1,
         learning_rate: float = 0.2, 
         optimizer_name: str = "Adam",
-        tune_hyperparams: bool = False,
         weight_decay: float = 0.3,
-        momentum: float = 0.1,
         batch_size: int = model_config.batch_size,
         trials: int | None = 10
     ) -> None:
@@ -80,7 +79,6 @@ class CustomLoop:
         self.weight_decay: float = weight_decay
         self.learning_rate: float = learning_rate
         self.optimizer_name: str = optimizer_name   
-        self.tune_hyperparams: bool = tune_hyperparams
         self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
         self.images: ImageFolder = prepare_images(model_name=model_name, augment_images=False)  
@@ -94,7 +92,7 @@ class CustomLoop:
         accuracy = MulticlassAccuracy(num_classes=num_classes, average="macro")
         return precision, recall, accuracy
 
-    def train(self) -> None:
+    def train(self) -> tuple[float, float, float, float]:
         """
         Initialise the multi-class precision, recall, and accuracy metrics. Then load the training data and 
         set the training device. Train the network in question for the specified number of epochs, put the 
@@ -110,18 +108,10 @@ class CustomLoop:
             val_metrics: a list of floats which are the average values of the loss, recall, accuracy, and 
                          precision of the trained model on the validation set.             
         """
-        if not self.tune_hyperparams:
-            logger.info("Training the untuned model")
+        model = get_pretrained_model(model_name=self.model_name)
+        return self.run_training_loop(model=model)
 
-            model = get_pretrained_model(model_name=self.model_name)
-            val_metrics = self.__run_training_loop__(model=model)
-
-        # else:
-        #     logger.info("Finding optimal values of hyperparameters")
-        #     perform_tuning(model_name=self.model_name, trials=self.trials, batch_size=batch_size, experiment=experiment)
-        #
-
-    def __get_optimizer__(
+    def get_optimizer(
         self,
         model: ViTForImageClassification | ViTHybridForImageClassification | BeitForImageClassification, 
     ) -> Optimizer:
@@ -154,11 +144,11 @@ class CustomLoop:
         else:
             raise NotImplementedError("Please use the Adam, SGD, or RMSprop optimizers")
 
-    def __run_training_loop__(
+    def run_training_loop(
         self, 
         model: ViTForImageClassification | ViTHybridForImageClassification | BeitForImageClassification,
         save: bool = True
-    ): 
+    ) -> tuple[float, float, float, float]: 
         """
         Train the requested model in either an untuned default state, or in the
         most optimal tuned form that was obtained after the specified number of tuning trials.
@@ -168,7 +158,7 @@ class CustomLoop:
             save: whether to save the model artifact as a pkl file.
 
         Returns:
-            
+          tuple[float, float, float, float]: tuple of metrics on the validation set.  
        """
         logger.info("Collecting training data")
         train_iterator = iter(self.train_dataloader)
@@ -178,7 +168,7 @@ class CustomLoop:
         model.to(device=self.device)
 
         precision, recall, accuracy = self.__prepare_metrics__()
-        optimizer = self.__get_optimizer__(model=model) 
+        optimizer = self.get_optimizer(model=model) 
         criterion = CrossEntropyLoss()
 
         for epoch in range(self.epochs):
@@ -268,19 +258,36 @@ class CustomLoop:
 
                 with experiment.test():
                     experiment.log_metrics(val_metrics)
-        # Save model parameters
-        if save:
-            torch.save(model.state_dict(), MODELS_DIR)
 
-        logger.info("Finished Training")
-        return [val_loss_avg, val_accuracy_avg, val_loss_avg, val_precision_avg]
+            # Save model parameters
+            if save:
+                torch.save(model.state_dict(), MODELS_DIR)
+
+            logger.info("Finished Training")
+            return val_loss_avg, val_accuracy_avg, val_loss_avg, val_precision_avg
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    _ = parser.add_argument("--custom", action="store_true")
+    _ = parser.add_argument("--tune_hyperparams", action="store_true")
     args = parser.parse_args()
 
-    trainer = CustomLoop()
-    trainer.train()
+    if args.tune_hyperparams:
 
+        trainer = CustomLoop(
+            model_name=model_config.vit_base,
+            epochs=10, 
+            momentum=0.1,
+            learning_rate=0.2, 
+            optimizer_name="Adam",
+            weight_decay=0.3,
+            batch_size=model_config.batch_size,
+            trials=10
+        )
+
+        trainer.train()
+        
+    else:
+        from src.training_pipeline.hyperparameter_tuning import perform_tuning
+        perform_tuning(model_name=model_config.vit_base, trials= 20, experiment=experiment)
+        
