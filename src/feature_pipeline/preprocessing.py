@@ -10,7 +10,7 @@ from src.setup.config import process_config, data_config, image_config
 from src.training_pipeline.models import get_image_processor
 
 
-def prepare_images(model_name: str, augment_images: bool = False, path: Path = RAW_DATA_DIR/data_config.file_name) -> ImageFolder:
+def prepare_images(model_name: str, augment_images: bool = False, path: Path = RAW_DATA_DIR/data_config.directory_name) -> ImageFolder:
     """
     Initialise the transforms that will be used for data augmentation of our images. The exact transforms that will 
     be used depend on whether the model is being trained, validated during training, or tested after training.
@@ -59,9 +59,9 @@ def split_data(
 
     Args:
         images (ImageFolder): the full Dataset object to be divided up.
+        batch_size: the size of the batches that the dataset will be divided into.
         train_ratio (float): the fraction of the data that is to be used for training
         val_ratio (float): the fraction of the data that is to be used for validation
-        batch_size: the size of the batches that the dataset will be divided into.
 
     Returns:
         tuple[DataLoader, DataLoader, DataLoader]: dataloaders for each data split
@@ -79,36 +79,4 @@ def split_data(
     test_dataloader: DataLoader[ImageFolder] = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
 
     return train_dataloader, val_dataloader, test_dataloader
-
-
-# def get_custom_transforms(path: Path, model_name: str, new_image_size: tuple[int, int]) -> Callable[[Image], Image]:
-#     """
-#     Perform selected transformations, and chain them, before applying the processor that corresponds  
-#
-#     Args:
-#         path: 
-#         new_image_size: 
-#
-#     Returns:
-#
-#     """
-#     assert path in [TRAIN_DATA_DIR, VAL_DATA_DIR, TEST_DATA_DIR]; "Provide paths to either the training, validation, or test data" 
-#
-#     if path == TRAIN_DATA_DIR:
-#
-#         return Compose([
-#             RandomHorizontalFlip(), RandomRotation(degrees=45), ToTensor(), Resize(size=new_image_size), Lambda(lambda img: process_image(img))
-#         ])
-#
-#     else: 
-#         return Compose([
-#             ToTensor(), Resize(size=new_image_size), Lambda(lambda img: process_image(img))
-#         ])
-#
-
-# def process_image(model_name: str, image: torch.Tensor) -> torch.Tensor:
-#     processor = get_image_processor(model_name=model_name) 
-#     processed_image: dict[str, torch.Tensor] = processor(image, return_tensors="pt")
-#     breakpoint()
-#     return processed_image["pixel_values"].squeeze(0)
 

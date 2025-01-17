@@ -10,18 +10,11 @@ from torch.nn import CrossEntropyLoss
 from torch.optim import Adam, SGD, RMSprop
 from torch.optim.optimizer import Optimizer
 
-from transformers import (
-    Trainer,
-    TrainingArguments,
-    ViTForImageClassification, 
-    ViTHybridForImageClassification, 
-    BeitForImageClassification 
-)
-
 from torchvision.datasets import ImageFolder
 from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
+from transformers import ViTForImageClassification, ViTHybridForImageClassification, BeitForImageClassification
 
-from src.setup.paths import MODELS_DIR, LOGS_DIR
+from src.setup.paths import MODELS_DIR
 from src.setup.config import model_config, env, data_config 
 from src.training_pipeline.models import get_image_processor, get_pretrained_model
 from src.feature_pipeline.preprocessing import prepare_images, split_data
@@ -121,8 +114,6 @@ class CustomLoop:
             logger.info("Training the untuned model")
 
             model = get_pretrained_model(model_name=self.model_name)
-            criterion = CrossEntropyLoss()        
-            chosen_optimizer = self.__get_optimizer__(model=model) 
             val_metrics = self.__run_training_loop__(model=model)
 
         # else:
@@ -285,68 +276,11 @@ class CustomLoop:
         return [val_loss_avg, val_accuracy_avg, val_loss_avg, val_precision_avg]
 
 
-class HFLoop:
-    def __init__(
-        self, 
-        model_name: str, 
-        epochs: int,
-        learning_rate: float, 
-        batch_size: int = model_config.batch_size
-    ) -> None:
-        self.epochs: int = epochs 
-        self.model_name: str = model_name
-        self.learning_rate: float = learning_rate
-        self.batch_size: int = batch_size
-
-        self.datasets: ImageFolder = prepare_images(model_name=model_name) 
-        self.train_dataloader, self.val_dataloader, self.test_dataloader = split_data(images=self.datasets)
-    
-    def train(self):
-        """
-        Train the requested model in either an untuned default state, or in the
-        most optimal tuned form that was obtained after the specified number of 
-        tuning trials.
-
-        Args:
-            batch_size: the batch size to be used during training.
-            learning_rate: the learning rate of the optimizer.
-            epochs: the number of epochs that the model should be trained for.
-            optimizer_name: the name of the optimizer that is to be used.
-            tune_hyperparams: a boolean that indicates whether hyperparameters are to be tuned.
-            trials: the number of optuna trials to run.
-        """
-        model = get_pretrained_model(model_name=self.model_name)
-        
-        training_params = TrainingArguments(
-            output_dir=str(MODELS_DIR),
-            learning_rate=self.learning_rate,
-            per_device_train_batch_size=self.batch_size,
-            per_device_eval_batch_size=self.batch_size,
-            num_train_epochs=self.epochs,
-            logging_dir=str(LOGS_DIR),
-            logging_strategy="epoch",
-            eval_strategy="epoch",
-            save_strategy="epoch"
-        )
-
-        trainer = Trainer(
-            model=model, 
-            args=training_params, 
-            train_dataset=self.train_dataloader.dataset, 
-            eval_dataset=self.val_dataloader.dataset
-        )
-
-        trainer.train()
-
 if __name__ == "__main__":
     parser = ArgumentParser()
     _ = parser.add_argument("--custom", action="store_true")
     args = parser.parse_args()
 
-    if args.custom:
-        trainer = CustomLoop()
-        trainer.train()
-    else:
-        trainer = HFLoop(model_name=model_config.vit_base, epochs=5, learning_rate=0.1)    
-        trainer.train()
+    trainer = CustomLoop()
+    trainer.train()
 

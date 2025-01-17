@@ -23,9 +23,9 @@ class DataConfig(BaseSettings):
     _ = SettingsConfigDict(env_file=PARENT_DIR/".env", env_file_encoding="utf-8", extra="allow")
 
     if load_dotenv(find_dotenv()):
-        file_name: str = os.environ["FILE_NAME"]
-        zipfile_name: str = f"{file_name}.zip" 
-        num_classes: int = get_num_classes(path=RAW_DATA_DIR / file_name)
+        directory_name: str = os.environ["DIRECTORY_NAME"]
+        zipfile_name: str = f"{directory_name}.zip" 
+        num_classes: int = get_num_classes(path=RAW_DATA_DIR / directory_name)
         url: str = "https://prod-dcd-datasets-cache-zipfiles.s3.eu-west-1.amazonaws.com/bn7ch8tvyp-1.zip" 
 
 
