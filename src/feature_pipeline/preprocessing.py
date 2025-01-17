@@ -1,11 +1,8 @@
 from pathlib import Path
 from loguru import logger 
-from typing import Callable
-from PIL.Image import Image
-
-from torch.utils.data import DataLoader,  random_split
 
 from torchvision.datasets import ImageFolder
+from torch.utils.data import DataLoader,  random_split
 from torchvision.transforms import Compose, Lambda, ToTensor, Resize, RandomHorizontalFlip, RandomRotation
 
 from src.setup.paths import RAW_DATA_DIR
@@ -13,7 +10,7 @@ from src.setup.config import process_config, data_config, image_config
 from src.training_pipeline.models import get_image_processor
 
 
-def prepare_images(augment_images: bool, model_name: str, path: Path = RAW_DATA_DIR/data_config.file_name) -> ImageFolder:
+def prepare_images(model_name: str, augment_images: bool = False, path: Path = RAW_DATA_DIR/data_config.file_name) -> ImageFolder:
     """
     Initialise the transforms that will be used for data augmentation of our images. The exact transforms that will 
     be used depend on whether the model is being trained, validated during training, or tested after training.
@@ -27,7 +24,7 @@ def prepare_images(augment_images: bool, model_name: str, path: Path = RAW_DATA_
     Returns:
         DataLoader: a Dataloader object which contains the training/validation/testing data.
     """
-    new_size = (image_config.resized_image_width, image_config.resized_image_height)
+    new_image_size = (image_config.resized_image_width, image_config.resized_image_height)
     processor = get_image_processor(model_name=model_name) 
 
     if not augment_images:
@@ -114,5 +111,4 @@ def split_data(
 #     processed_image: dict[str, torch.Tensor] = processor(image, return_tensors="pt")
 #     breakpoint()
 #     return processed_image["pixel_values"].squeeze(0)
-#
 

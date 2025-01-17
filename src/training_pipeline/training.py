@@ -298,9 +298,8 @@ class HFLoop:
         self.learning_rate: float = learning_rate
         self.batch_size: int = batch_size
 
-        self.datasets: tuple[DataLoader[ImageFolder], DataLoader[ImageFolder], DataLoader[ImageFolder]] = prepare_data()
-        self.train_dataloader: DataLoader[ImageFolder] = self.datasets[0]
-        self.val_dataloader: DataLoader[ImageFolder] = self.datasets[1]
+        self.datasets: ImageFolder = prepare_images(model_name=model_name) 
+        self.train_dataloader, self.val_dataloader, self.test_dataloader = split_data(images=self.datasets)
     
     def train(self):
         """
@@ -333,8 +332,8 @@ class HFLoop:
         trainer = Trainer(
             model=model, 
             args=training_params, 
-            train_dataset=self.train_dataloader, 
-            eval_dataset=self.val_dataloader
+            train_dataset=self.train_dataloader.dataset, 
+            eval_dataset=self.val_dataloader.dataset
         )
 
         trainer.train()
