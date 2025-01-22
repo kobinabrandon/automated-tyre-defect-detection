@@ -8,17 +8,17 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.12"
 optuna = "^4.1.0"
-torchvision = "^0.20.1"
 tqdm = "^4.67.1"
 loguru = "^0.7.3"
 comet-ml = "^3.47.6"
 pydantic-settings = "^2.7.1"
 transformers = "^4.48.0"
-torchmetrics = "^1.6.1"
 joblib = "^1.4.2"
 accelerate = "^1.2.1"
-torch = "^2.5.1"
 datasets = "^3.2.0"
+torch = "2.5.1"
+torchvision = "^0.20.1"
+torchmetrics = "^1.6.1"
 
 [build-system]
 requires = ["poetry-core"]

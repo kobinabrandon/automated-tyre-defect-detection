@@ -1,17 +1,20 @@
 from comet_ml import Experiment  # For some reason, to log to CometML automatically, we must import comet_ml before torch
 import torch
 
+from torch._C import device
 from tqdm import tqdm
 from loguru import logger
 from argparse import ArgumentParser
 from torch.utils.data import DataLoader
 
+from torch.optim.sgd import SGD
+from torch.optim.adam import Adam
+from torch.optim.rmsprop import RMSprop
 from torch.nn import CrossEntropyLoss
-from torch.optim import Adam, SGD, RMSprop
 from torch.optim.optimizer import Optimizer
 
 from torchvision.datasets import ImageFolder
-from torchmetrics.classification import MulticlassPrecision, MulticlassAccuracy, MulticlassRecall
+from torchmetrics.classification import Precision, Recall, Accuracy  
 from transformers import ViTForImageClassification, ViTHybridForImageClassification, BeitForImageClassification
 
 from src.setup.paths import MODELS_DIR
@@ -87,9 +90,9 @@ class CustomLoop:
         self.val_dataloader: DataLoader[ImageFolder] = self.datasets[1]
 
     def __prepare_metrics__(self):
-        precision = MulticlassPrecision(num_classes=num_classes, average="macro")
-        recall = MulticlassRecall(num_classes=num_classes, average="macro")
-        accuracy = MulticlassAccuracy(num_classes=num_classes, average="macro")
+        precision = Precision(task="binary", num_classes=num_classes, average="macro").to(device=self.device)
+        recall = Recall(task="binary", num_classes=num_classes, average="macro").to(device=self.device)
+        accuracy = Accuracy(task="binary", num_classes=num_classes, average="macro").to(device=self.device)
         return precision, recall, accuracy
 
     def train(self) -> tuple[float, float, float, float]:
@@ -207,11 +210,11 @@ class CustomLoop:
 
                     images, labels = images.to(self.device), labels.to(self.device)
                     output = model(**remove_extra_batch_dimension(images))
-
+                    
                     val_loss = criterion(output.logits, labels).item()
                     val_loss_total += val_loss
 
-                    _, predictions = torch.max(input=output, dim=1)
+                    _, predictions = torch.max(input=output.logits, dim=1)
 
                     experiment.log_confusion_matrix(
                         y_true=labels,
@@ -259,12 +262,8 @@ class CustomLoop:
                 with experiment.test():
                     experiment.log_metrics(val_metrics)
 
-            # Save model parameters
-            if save:
-                torch.save(model.state_dict(), MODELS_DIR)
-
-            logger.info("Finished Training")
-            return val_loss_avg, val_accuracy_avg, val_loss_avg, val_precision_avg
+        logger.info("Finished Training")
+#            return val_loss_avg, val_accuracy_avg, val_loss_avg, val_precision_avg
 
 
 if __name__ == "__main__":
@@ -272,7 +271,7 @@ if __name__ == "__main__":
     _ = parser.add_argument("--tune_hyperparams", action="store_true")
     args = parser.parse_args()
 
-    if args.tune_hyperparams:
+    if not args.tune_hyperparams:
 
         trainer = CustomLoop(
             model_name=model_config.vit_base,
@@ -290,4 +289,4 @@ if __name__ == "__main__":
     else:
         from src.training_pipeline.hyperparameter_tuning import perform_tuning
         perform_tuning(model_name=model_config.vit_base, trials= 20, experiment=experiment)
-        
+ 
